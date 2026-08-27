@@ -1,0 +1,16 @@
+# generated patch (absolute paths) — rebuild locally
+.generated-cordis.patch.yml
+.dsh-modules/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# runtime model outputs (keep the folder, ignore contents)
+models/*
+!models/.gitkeep
+
+# os / editor
+.DS_Store
+Thumbs.db

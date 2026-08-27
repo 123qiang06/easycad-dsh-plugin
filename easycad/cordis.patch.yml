@@ -1,0 +1,5 @@
+# Template only. start-dsh-web.ps1 writes easycad/.generated-cordis.patch.yml
+# with absolute skill paths. Do not edit the three reference repos.
+#
+# - skill-filesystem.customSkillDirs -> <EasyCAD>/.dsh/skills
+# - insert easycad -> absolute path to easycad/dsh-plugin/index.js

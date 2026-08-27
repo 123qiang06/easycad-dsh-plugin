@@ -1,0 +1,1476 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EasyCAD</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ec-bg: #f4f5f7;
+      --ec-panel: #fff;
+      --ec-border: #e3e6ea;
+      --ec-muted: #6b7280;
+      --ec-text: #111827;
+      --ec-accent: #2563eb;
+      --ec-viewport: #eceff3;
+      --ec-parts-w: 208px;
+      --ec-sheet-w: 280px;
+      --ec-topbar-h: 40px;
+      --ec-status-h: 26px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font: 13px/1.45 ui-sans-serif, system-ui, sans-serif;
+      background: var(--ec-bg);
+      color: var(--ec-text);
+    }
+    .workbench { display: flex; flex-direction: column; height: 100vh; }
+    .topbar {
+      display: flex; align-items: center; gap: 10px;
+      height: var(--ec-topbar-h); padding: 0 10px;
+      background: var(--ec-panel); border-bottom: 1px solid var(--ec-border);
+      flex-shrink: 0;
+    }
+    .brand { font-weight: 650; font-size: 13px; }
+    .crumb {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--ec-muted); min-width: 0;
+    }
+    .crumb strong {
+      color: var(--ec-text); font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .dims-badge {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px; color: var(--ec-muted);
+      padding: 2px 8px; border: 1px solid var(--ec-border);
+      border-radius: 999px; background: var(--ec-bg);
+    }
+    .spacer { flex: 1; }
+    .main { display: flex; flex: 1; min-height: 0; }
+    .parts-panel, .sheet-panel {
+      background: var(--ec-panel);
+      border-color: var(--ec-border);
+      flex-shrink: 0;
+      overflow: auto;
+    }
+    .parts-panel {
+      width: var(--ec-parts-w);
+      border-right: 1px solid var(--ec-border);
+    }
+    .sheet-panel {
+      width: var(--ec-sheet-w);
+    }
+    .sheet-resize-grip {
+      width: 12px; flex-shrink: 0; cursor: col-resize; touch-action: none;
+      background: var(--ec-panel);
+      border-left: 1px solid var(--ec-border);
+      border-right: 1px solid var(--ec-border);
+      position: relative; z-index: 1;
+      transition: background .12s ease;
+    }
+    .sheet-resize-grip:hover,
+    .sheet-resize-grip[data-dragging="true"] { background: #f4f6f8; }
+    .sheet-resize-grip::after {
+      content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px;
+      background: transparent; transition: background .12s ease;
+    }
+    .sheet-resize-grip:hover::after,
+    .sheet-resize-grip[data-dragging="true"]::after { background: #4c7fd4; }
+    .panel-head {
+      position: sticky; top: 0; z-index: 1;
+      padding: 8px 10px 6px;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      color: var(--ec-muted);
+      background: var(--ec-panel);
+      border-bottom: 1px solid var(--ec-border);
+    }
+    .tree-root { padding: 4px 0 8px; font-size: 12px; }
+    .tree-node { width: 100%; }
+    .tree-row {
+      display: flex; align-items: center; gap: 4px;
+      width: 100%; min-height: 26px; padding: 2px 6px 2px 0;
+      border: 0; background: transparent; color: var(--ec-text);
+      font: inherit; text-align: left; cursor: pointer;
+    }
+    .tree-row:hover { background: var(--ec-bg); }
+    .tree-row[data-active="true"] { background: #eff6ff; box-shadow: inset 3px 0 0 var(--ec-accent); }
+    .tree-toggle {
+      width: 18px; height: 18px; border: 0; background: transparent;
+      color: var(--ec-muted); cursor: pointer; flex-shrink: 0; font-size: 10px;
+    }
+    .tree-icon {
+      width: 14px; text-align: center; flex-shrink: 0;
+      color: var(--ec-muted); font-size: 10px;
+    }
+    .tree-label {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 11px;
+    }
+    .tree-label[data-kind="dir"] { font-weight: 600; color: var(--ec-text); }
+    .tree-label[data-kind="file"] { color: #374151; }
+    .tree-children { margin-left: 10px; border-left: 1px solid var(--ec-border); }
+    .tree-empty { padding: 8px 10px; color: var(--ec-muted); font-size: 11px; }
+    .viewport-area {
+      flex: 1; min-width: 0; position: relative;
+      background: var(--ec-viewport);
+    }
+    #view { position: relative; width: 100%; height: 100%; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .overlay {
+      position: absolute; inset: 0; z-index: 2;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; text-align: center;
+      color: var(--ec-muted);
+      background: rgb(236 239 243 / 72%);
+      backdrop-filter: blur(1px);
+      pointer-events: none;
+    }
+    .overlay[hidden] { display: none !important; }
+    .viewport-hint {
+      position: absolute; left: 10px; bottom: 10px; z-index: 1;
+      color: var(--ec-muted); font-size: 11px; pointer-events: none;
+    }
+    .viewport-toolbar {
+      position: absolute; right: 10px; bottom: 10px; z-index: 1;
+      display: flex; gap: 4px; padding: 4px;
+      background: rgb(255 255 255 / 92%);
+      border: 1px solid var(--ec-border);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgb(17 24 39 / 6%);
+    }
+    .viewport-toolbar button {
+      border: 1px solid transparent; border-radius: 6px;
+      background: transparent; color: var(--ec-text);
+      padding: 4px 8px; font: inherit; font-size: 11px; cursor: pointer;
+    }
+    .viewport-toolbar button:hover { background: var(--ec-bg); border-color: var(--ec-border); }
+    .viewport-toolbar button[data-active="true"] {
+      background: #eff6ff; border-color: #bfdbfe; color: var(--ec-accent);
+    }
+    .section {
+      border-bottom: 1px solid var(--ec-border);
+    }
+    .section summary {
+      list-style: none; cursor: pointer;
+      padding: 8px 10px; font-size: 12px; font-weight: 600;
+      color: var(--ec-text);
+    }
+    .section summary::-webkit-details-marker { display: none; }
+    .section summary::after {
+      content: "▾"; float: right; color: var(--ec-muted); font-size: 11px;
+    }
+    .section:not([open]) summary::after { content: "▸"; }
+    .section-body { padding: 0 0 8px; }
+    .sec-badge {
+      float: right; border-radius: 999px; padding: 0 7px;
+      font-size: 10px; font-weight: 600; color: #fff; background: #6b7280;
+    }
+    .sec-badge[data-kind="warn"] { background: #d97706; }
+    .sec-badge[data-kind="ok"] { background: #15803d; }
+    .param-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 6px 10px; cursor: pointer;
+    }
+    .param-row:hover { background: var(--ec-bg); }
+    .param-row[data-active="true"] { background: #eff6ff; }
+    .param-label { font-size: 11px; color: var(--ec-muted); }
+    .param-value {
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 11px; padding: 2px 6px;
+      border-radius: 4px; background: var(--ec-bg); color: var(--ec-muted);
+    }
+    .info-empty { padding: 8px 10px; color: var(--ec-muted); font-size: 11px; line-height: 1.5; }
+    .info-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 4px 10px; font-size: 11px; color: var(--ec-text);
+    }
+    .info-val {
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 10px; padding: 1px 5px; border-radius: 4px;
+      background: var(--ec-bg); color: var(--ec-muted); text-align: right;
+    }
+    .issue-row {
+      display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+      font-size: 11px; color: var(--ec-muted); border-radius: 6px;
+    }
+    .issue-row[data-kind="ok"] { color: #15803d; }
+    .issue-row[data-kind="bad"] { color: #c62828; }
+    .issue-row[data-kind="warn"] { color: #b45309; background: #fef3c7; margin: 2px 6px; padding: 5px 8px; }
+    .advice-item { padding: 2px 10px; font-size: 11px; color: var(--ec-text); line-height: 1.55; }
+    .tree-item { padding: 3px 10px; font-size: 11px; color: var(--ec-text); cursor: pointer; user-select: none; -webkit-user-select: none; }
+    .tree-item:hover { background: #f4f5f7; }
+    .tree-root { font-weight: 650; }
+    .tree-count { float: right; font-size: 10px; font-weight: 500; color: #6b7280; }
+    .tree-leaf { padding-left: 22px; color: #374151; }
+    .tree-active { background: #eff6ff; box-shadow: inset 3px 0 0 #2563eb; }
+    .artifact-list { padding: 0 10px 4px; }
+    .artifact-list a {
+      display: block; color: var(--ec-accent); text-decoration: none;
+      padding: 3px 0; font-size: 11px; word-break: break-all;
+    }
+    .artifact-list a:hover { text-decoration: underline; }
+    .inspector-empty {
+      padding: 8px 10px; color: var(--ec-muted); font-size: 11px; line-height: 1.5;
+    }
+    .inspector-kicker {
+      padding: 0 10px; font-size: 10px; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--ec-muted);
+    }
+    .inspector-title {
+      padding: 2px 10px 0; font-size: 14px; font-weight: 650;
+    }
+    .inspector-hint {
+      padding: 2px 10px 8px; color: var(--ec-muted); font-size: 11px;
+    }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 10px 8px; }
+    input[type="number"] {
+      width: 88px; border: 1px solid var(--ec-border);
+      border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 11px;
+    }
+    input[type="number"]:focus {
+      outline: 2px solid #bfdbfe; border-color: #60a5fa;
+    }
+    .unit { color: #9ca3af; font-size: 11px; }
+    .batch-fields { padding: 0 10px 2px; }
+    .batch-row { display: flex; align-items: center; gap: 6px; padding: 5px 0; }
+    .batch-row label {
+      width: 64px; flex-shrink: 0; font-size: 11px; color: var(--ec-muted);
+    }
+    .batch-row .batch-hint {
+      flex: 1; min-width: 0; font-size: 10px; color: #9ca3af; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .batch-row input[type="number"] { width: 72px; }
+    .batch-row[data-active="true"] input { border-color: #60a5fa; box-shadow: 0 0 0 1px #bfdbfe; }
+    button.primary {
+      border: 0; border-radius: 6px; background: var(--ec-accent);
+      color: #fff; padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer;
+    }
+    button.primary:hover { background: #1d4ed8; }
+    button.primary:disabled { background: #93c5fd; cursor: wait; }
+    button.ghost {
+      border: 1px solid var(--ec-border); border-radius: 6px;
+      background: #fff; color: var(--ec-text);
+      padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer;
+    }
+    button.ghost:hover { background: var(--ec-bg); }
+    .statusbar {
+      height: var(--ec-status-h);
+      display: flex; align-items: center; padding: 0 10px;
+      font-size: 11px; color: var(--ec-muted);
+      background: var(--ec-panel); border-top: 1px solid var(--ec-border);
+      flex-shrink: 0;
+    }
+    .statusbar[data-kind="error"] { color: #dc2626; }
+    .statusbar[data-kind="ok"] { color: #15803d; }
+    body.embed { --ec-parts-w: 176px; --ec-sheet-w: 220px; }
+    body.embed .brand, body.embed .statusbar { display: none; }
+    body.embed .crumb { display: none; }
+    body.embed .topbar select { max-width: 120px; }
+    /* bare mode: only the 3D viewport; side panels move into the dsh overlay */
+    body.bare .topbar, body.bare .statusbar,
+    body.bare .parts-panel, body.bare .sheet-panel { display: none; }
+    body.bare .sheet-resize-grip { display: none; }
+    body.bare .viewport-area { flex: 1; }
+    .floating-edit {
+      position: absolute; left: 12px; bottom: 46px; z-index: 3;
+      width: 232px; max-width: calc(100% - 24px);
+      background: var(--ec-panel); border: 1px solid var(--ec-border);
+      border-radius: 10px; padding: 8px 10px;
+      box-shadow: 0 4px 16px rgb(17 24 39 / 12%);
+    }
+    .floating-edit[hidden] { display: none; }
+    /* panel mode: 3D viewport + parametric panel on the right */
+    body.panel { --ec-sheet-w: 248px; }
+    body.panel .topbar, body.panel .statusbar,
+    body.panel .parts-panel { display: none; }
+    body.panel .viewport-area { flex: 1; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="workbench">
+    <header class="topbar">
+      <div class="brand">EasyCAD</div>
+      <nav class="crumb" aria-label="路径">
+        <span>models</span><span>/</span><strong id="crumb-name">—</strong>
+      </nav>
+      <select id="parts" aria-label="零件"></select>
+      <div class="dims-badge" id="dims">—</div>
+      <div class="spacer"></div>
+    </header>
+    <div class="main">
+      <aside class="parts-panel" id="parts-panel">
+        <div class="panel-head">models</div>
+        <div class="tree-root" id="file-tree"></div>
+      </aside>
+      <section class="viewport-area">
+        <div id="view">
+          <div class="overlay" id="status">加载中…</div>
+          <div class="viewport-hint" id="hint">点选面或参数 · 拖动旋转</div>
+          <div class="viewport-toolbar" role="group" aria-label="视图">
+            <button type="button" data-view="iso" data-active="true">等轴</button>
+            <button type="button" data-view="front">正视</button>
+            <button type="button" data-view="top">俯视</button>
+            <button type="button" data-view="right">右视</button>
+            <button type="button" class="ghost" id="reset-view">重置</button>
+          </div>
+          <div class="floating-edit" id="floating-edit" hidden></div>
+        </div>
+      </section>
+      <div class="sheet-resize-grip" id="sheet-grip" title="拖动调整面板宽度" role="separator" aria-orientation="vertical"></div>
+      <aside class="sheet-panel" id="sheet">
+        <details class="section" open>
+          <summary>AI 建议</summary>
+          <div class="section-body" id="advice"><div class="info-empty">生成零件后自动生成 AI 建议。</div></div>
+        </details>
+        <details class="section" open>
+          <summary>Issues <span class="sec-badge" id="issues-badge"></span></summary>
+          <div class="section-body" id="issues"><div class="info-empty">—</div></div>
+        </details>
+        <details class="section">
+          <summary>Tree</summary>
+          <div class="section-body" id="tree"><div class="info-empty">—</div></div>
+        </details>
+        <details class="section" open>
+          <summary>Parameters</summary>
+          <div class="section-body" id="param-list"></div>
+        </details>
+        <details class="section" open>
+          <summary>选中面</summary>
+          <div class="section-body" id="face-info"><div class="info-empty">在 3D 视图中点选一个面。</div></div>
+        </details>
+        <details class="section" open>
+          <summary>编辑</summary>
+          <div class="section-body">
+            <div class="inspector-empty" id="inspector-empty">选中面或参数行来改尺寸。</div>
+            <div id="inspector-edit" hidden>
+              <div class="inspector-kicker">编辑尺寸 · 多个参数</div>
+              <div class="inspector-title" id="card-title"></div>
+              <div class="inspector-hint" id="card-hint"></div>
+              <div class="batch-fields" id="batch-fields"></div>
+              <form id="form" class="row">
+                <button type="submit" class="primary" id="apply">应用</button>
+                <button type="button" class="ghost" id="clear">取消</button>
+              </form>
+            </div>
+          </div>
+        </details>
+        <details class="section" open>
+          <summary>Metadata</summary>
+          <div class="section-body" id="metadata"><div class="info-empty">—</div></div>
+          <div class="section-body artifact-list" id="artifacts"></div>
+        </details>
+      </aside>
+    </div>
+    <footer class="statusbar" id="statusbar">就绪</footer>
+  </div>
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+
+    const FEATURES = {
+      length: { id: 'length', title: '长度', hint: 'X 方向外形尺寸' },
+      width: { id: 'width', title: '宽度', hint: 'Y 方向外形尺寸' },
+      height: { id: 'height', title: '厚度', hint: 'Z 方向外形尺寸' },
+      hole: { id: 'hole_d', title: '中心孔直径', hint: '通孔直径' },
+    }
+    const PARAM_ORDER = ['length', 'width', 'height', 'hole_d']
+    const PARAM_LABELS = {
+      length: '长度', width: '宽度', height: '厚度', hole_d: '中心孔',
+    }
+
+    const query = new URLSearchParams(location.search)
+    const base = location.pathname.startsWith('/easycad') ? '/easycad' : ''
+    if (query.get('embed') === '1') document.body.classList.add('embed')
+    if (query.get('bare') === '1') {
+      document.body.classList.add('bare')
+      // Move the edit inspector out of the hidden sheet into a floating card in the viewport.
+      const floatBox = document.getElementById('floating-edit')
+      const empty = document.getElementById('inspector-empty')
+      const edit = document.getElementById('inspector-edit')
+      if (floatBox && empty && edit) {
+        empty.textContent = '点选面来改尺寸。'
+        floatBox.appendChild(empty)
+        floatBox.appendChild(edit)
+        floatBox.hidden = false
+      }
+    }
+    if (query.get('panel') === '1') document.body.classList.add('panel')
+
+    // Make the right inspection panel (sheet) resizable by dragging its left edge.
+    const sheetEl = document.getElementById('sheet')
+    const sheetGrip = document.getElementById('sheet-grip')
+    if (sheetEl && sheetGrip) {
+      const KEY = 'easycad:sheet-width'
+      const MIN = 220
+      const MAX = 680
+      let saved = NaN
+      try { saved = Number(localStorage.getItem(KEY)) } catch {}
+      if (Number.isFinite(saved) && saved >= MIN && saved <= MAX) {
+        sheetEl.style.setProperty('--ec-sheet-w', `${Math.round(saved)}px`)
+      }
+      const readWidth = () => parseFloat(getComputedStyle(sheetEl).width) || 248
+      let dragging = false
+      let startX = 0
+      let startW = 0
+      const onDown = (event) => {
+        dragging = true
+        startX = event.clientX
+        startW = readWidth()
+        sheetGrip.dataset.dragging = 'true'
+        sheetGrip.setPointerCapture(event.pointerId)
+        event.preventDefault()
+      }
+      const onMove = (event) => {
+        if (!dragging) return
+        const next = Math.min(MAX, Math.max(MIN, Math.round(startW - (event.clientX - startX))))
+        sheetEl.style.setProperty('--ec-sheet-w', `${next}px`)
+      }
+      const onUp = (event) => {
+        if (!dragging) return
+        dragging = false
+        sheetGrip.dataset.dragging = 'false'
+        try { sheetGrip.releasePointerCapture(event.pointerId) } catch {}
+        const next = parseInt(sheetEl.style.getPropertyValue('--ec-sheet-w'), 10) || readWidth()
+        try { localStorage.setItem(KEY, String(Math.round(next))) } catch {}
+      }
+      sheetGrip.addEventListener('pointerdown', onDown)
+      sheetGrip.addEventListener('pointermove', onMove)
+      sheetGrip.addEventListener('pointerup', onUp)
+      sheetGrip.addEventListener('pointercancel', onUp)
+    }
+
+    let name = query.get('name') || ''
+    let lastStamp = 0
+    let partsCatalog = []
+    let fileTree = []
+    const expandedDirs = new Set([''])
+
+    const partsSelect = document.getElementById('parts')
+    const fileTreeEl = document.getElementById('file-tree')
+    const crumbName = document.getElementById('crumb-name')
+    const view = document.getElementById('view')
+    const status = document.getElementById('status')
+    const inspectorEmpty = document.getElementById('inspector-empty')
+    const inspectorEdit = document.getElementById('inspector-edit')
+    const applyBtn = document.getElementById('apply')
+    const statusbar = document.getElementById('statusbar')
+    const dims = document.getElementById('dims')
+    const paramList = document.getElementById('param-list')
+    const artifactsEl = document.getElementById('artifacts')
+    const batchFieldsEl = document.getElementById('batch-fields')
+
+    let allParams = {}
+    let baseline = { length: 1, width: 1, height: 1 }
+    let selected = null
+    let featureSel = null
+    let modelRoot = null
+    let highlight = null
+    let hoverMesh = null
+    let gridHelper = null
+    let faceClusters = []
+    let triToFace = null
+    let meshTriangleOffset = null
+    let edgeLineSegments = []
+    let showEdges = false
+    let showGrid = false
+    let envelope = null
+    let faceTopology = null
+    let facePickGroup = null
+    let camera, controls, renderer, scene
+    let partCenter = new THREE.Vector3()
+    let viewDistance = 100
+    let loadingToken = 0
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    const down = { x: 0, y: 0, at: 0 }
+
+    function setStatus(text, kind) {
+      statusbar.textContent = text || '就绪'
+      statusbar.dataset.kind = kind || ''
+    }
+
+    function setLoading(text) {
+      status.hidden = false
+      status.textContent = text || '加载中…'
+    }
+
+    function clearLoading() {
+      status.hidden = true
+    }
+
+    function dimText() {
+      const L = allParams.length, W = allParams.width, H = allParams.height, D = allParams.hole_d
+      if (!L || !W || !H) return '—'
+      return D ? `${L} × ${W} × ${H} · ⌀${D} mm` : `${L} × ${W} × ${H} mm`
+    }
+
+    function normalizeCatalog(raw) {
+      const names = Array.isArray(raw?.names) ? raw.names : []
+      let parts = Array.isArray(raw?.parts) ? raw.parts : []
+      if (!parts.length && names.length) {
+        parts = names.map((item) => ({
+          name: item,
+          hasScript: false,
+          hasStep: false,
+          hasGlb: false,
+          hasIr: false,
+        }))
+      }
+      return { names, parts }
+    }
+
+    function fileIcon(node) {
+      if (node.kind === 'dir') return '▸'
+      if (/\.(step|stp)$/i.test(node.name)) return 'S'
+      if (/\.glb$/i.test(node.name)) return 'G'
+      if (node.name.endsWith('.step.py')) return 'Py'
+      if (/\.(ir|brief)\.json$/i.test(node.name)) return '{}'
+      return '·'
+    }
+
+    function renderTreeNodes(nodes, depth = 0) {
+      return nodes.map((node) => {
+        if (node.kind === 'dir') {
+          const open = expandedDirs.has(node.path)
+          return `<div class="tree-node">
+            <div class="tree-row" style="padding-left:${6 + depth * 8}px">
+              <button type="button" class="tree-toggle" data-dir="${node.path}" aria-label="展开">${open ? '▾' : '▸'}</button>
+              <span class="tree-icon">📁</span>
+              <span class="tree-label" data-kind="dir">${node.name}</span>
+            </div>
+            ${open ? `<div class="tree-children">${renderTreeNodes(node.children || [], depth + 1)}</div>` : ''}
+          </div>`
+        }
+        const active = node.preview && node.stem === name ? ' data-active="true"' : ''
+        const preview = node.preview ? ` data-stem="${node.stem}"` : ''
+        return `<div class="tree-node">
+          <button type="button" class="tree-row" style="padding-left:${24 + depth * 8}px"${active}${preview} data-path="${node.path}">
+            <span class="tree-icon">${fileIcon(node)}</span>
+            <span class="tree-label" data-kind="file">${node.name}</span>
+          </button>
+        </div>`
+      }).join('')
+    }
+
+    function renderFileTree() {
+      if (!fileTree.length) {
+        fileTreeEl.innerHTML = '<div class="tree-empty">models/ 为空。生成零件后会出现在这里。</div>'
+        return
+      }
+      fileTreeEl.innerHTML = renderTreeNodes(fileTree)
+    }
+
+    function syncChrome() {
+      crumbName.textContent = name || '—'
+      dims.textContent = dimText()
+      document.title = 'EasyCAD · ' + (name || '—')
+      if (partsSelect && partsSelect.value !== name) partsSelect.value = name
+      renderFileTree()
+    }
+
+    async function fetchCatalog() {
+      const res = await fetch(base + '/parts', { cache: 'no-store' })
+      if (!res.ok) return { names: [], parts: [] }
+      return normalizeCatalog(await res.json())
+    }
+
+    async function fetchTree() {
+      const res = await fetch(base + '/tree', { cache: 'no-store' })
+      if (!res.ok) return []
+      const data = await res.json()
+      return Array.isArray(data.tree) ? data.tree : []
+    }
+    function renderParamList() {
+      paramList.innerHTML = PARAM_ORDER.map((key) => {
+        const val = allParams[key]
+        if (val == null && key === 'hole_d') return ''
+        const label = PARAM_LABELS[key] || key
+        const feature = key === 'hole_d' ? 'hole' : key
+        const active = featureSel === feature ? ' data-active="true"' : ''
+        const shown = val != null ? Number(val).toFixed(key === 'hole_d' ? 1 : 2) : '—'
+        return `<div class="param-row"${active} data-feature="${feature}"><span class="param-label">${label}</span><span class="param-value">${shown}</span></div>`
+      }).join('')
+    }
+
+    function renderArtifacts() {
+      // 产物只显示该零件实际存在的文件（优先 STEP B-rep，其次 GLB），隐藏源码/IR。
+      const row = partsCatalog.find((item) => item.name === name)
+      if (row && row.hasStep) {
+        artifactsEl.innerHTML = `<a href="${base}/models/${name}.step" download>STEP · models/${name}.step</a>`
+      } else if (row && row.hasGlb) {
+        artifactsEl.innerHTML = `<a href="${base}/models/${name}.glb" download>GLB · models/${name}.glb</a>`
+      } else {
+        artifactsEl.innerHTML = '<div class="info-empty">无产物。</div>'
+      }
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+    }
+
+    async function fetchJson(url) {
+      try { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) return null; return await r.json() } catch { return null }
+    }
+
+    async function renderIssues() {
+      const box = document.getElementById('issues')
+      const badge = document.getElementById('issues-badge')
+      if (!box) return
+      const qa = await fetchJson(base + '/models/' + name + '.qa.json')
+      const items = []
+      let issues = 0
+      if (qa && Array.isArray(qa.checks)) {
+        for (const c of qa.checks) {
+          const ok = !c || c.pass !== false
+          if (!ok) issues += 1
+          const got = c.got_mm ? (Array.isArray(c.got_mm) ? c.got_mm.join('×') : c.got_mm) : ''
+          items.push(`<div class="issue-row" data-kind="${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✕'} ${esc(c.id || c.kind || 'check')}${got ? ' · ' + esc(got) : ''}</div>`)
+        }
+      } else {
+        items.push('<div class="info-empty">暂无校验数据。生成零件后自动记录 QA。</div>')
+      }
+      // CAD vs reference-image similarity (advisory; never blocks geometry QA).
+      const sim = await fetchJson(base + '/models/' + name + '.similarity.json')
+      if (sim && sim.present) {
+        const simOk = sim.pass !== false
+        const frag = String(sim.note || '').indexOf('fragmented') !== -1
+        const kind = frag ? 'warn' : (simOk ? 'ok' : 'bad')
+        items.push(`<div class="issue-row" data-kind="${kind}">${simOk ? '✓' : '✕'} image_similarity · ${Number(sim.score).toFixed(2)} (${esc(sim.grade)} · ${esc(sim.best_view)} 视图)${frag ? ' · 参考图为工程图/多视图' : ''}</div>`)
+      } else if (sim) {
+        items.push('<div class="issue-row" data-kind="muted">— image_similarity · 未提供参考图</div>')
+      }
+      if (faceTopology && Array.isArray(faceTopology.faces) && faceTopology.faces.length) {
+        items.push(`<div class="issue-row" data-kind="ok">✓ 逐面拓扑已生成（${faceTopology.faces.length} 个面可精确选中）</div>`)
+      } else {
+        items.push('<div class="issue-row" data-kind="warn">⚠ 无 STEP 拓扑 sidecar（曲面/边精度受限）</div>')
+      }
+      box.innerHTML = items.join('')
+      if (badge) {
+        if (issues > 0) { badge.textContent = String(issues); badge.dataset.kind = 'warn' }
+        else if (qa && qa.pass) { badge.textContent = '✓'; badge.dataset.kind = 'ok' }
+        else { badge.textContent = ''; badge.dataset.kind = '' }
+      }
+    }
+
+    async function renderTree() {
+      const box = document.getElementById('tree')
+      if (!box) return
+      let html = ''
+      const faces = (faceTopology && Array.isArray(faceTopology.faces) && faceTopology.faces.length) ? faceTopology.faces : []
+      const ir = await fetchJson(base + '/models/' + name + '.ir.json')
+      // cad-viewer-style entity tree: part name (root) -> its B-rep faces (#id · type),
+      // clicking a face row selects + highlights that face.
+      html += `<div class="tree-item tree-root">${esc(name || ir?.name || '零件')}${faces.length ? ` <span class="tree-count">${faces.length} 面</span>` : ''}</div>`
+      if (faces.length) {
+        html += faces.map((fc) => {
+          const active = selected === fc.id ? ' tree-active' : ''
+          return `<div class="tree-item tree-leaf${active}" data-face="${fc.id}">#${fc.id} · ${esc(fc.type)}</div>`
+        }).join('')
+      } else if (ir && (ir.features || []).length) {
+        html += (ir.features || []).map((f) => `<div class="tree-item tree-leaf">${esc(f.text || f.id || 'feature')}</div>`).join('')
+      } else {
+        html += '<div class="info-empty">无面数据。</div>'
+      }
+      box.innerHTML = html
+    }
+
+    async function renderMetadata() {
+      const box = document.getElementById('metadata')
+      if (!box) return
+      const ir = await fetchJson(base + '/models/' + name + '.ir.json')
+      if (!ir) { box.innerHTML = '<div class="info-empty">暂无元数据。</div>'; return }
+      const env = ir.envelope && ir.envelope.size_mm ? ir.envelope.size_mm.join(' × ') : '—'
+      const step = (ir.trace && ir.trace.step) || '—'
+      box.innerHTML =
+        `<div class="info-row"><span>名称</span><span class="info-val">${esc(ir.name)}</span></div>`
+        + `<div class="info-row"><span>尺寸</span><span class="info-val">${esc(env)} mm</span></div>`
+        + `<div class="info-row"><span>单位</span><span class="info-val">${esc(ir.units || 'mm')}</span></div>`
+        + `<div class="info-row"><span>来源</span><span class="info-val">${esc(step)}</span></div>`
+        + (ir.intent ? `<div class="info-row"><span>意图</span><span class="info-val">${esc(ir.intent)}</span></div>` : '')
+    }
+
+    async function renderAdvice() {
+      const box = document.getElementById('advice')
+      if (!box) return
+      const advice = await fetchJson(base + '/models/' + name + '.advice.json')
+      if (!advice) { box.innerHTML = '<div class="info-empty">生成零件后自动生成 AI 建议。</div>'; return }
+      const sug = Array.isArray(advice.suggestions) ? advice.suggestions : []
+      if (!sug.length) { box.innerHTML = '<div class="info-empty">暂无建议。</div>'; return }
+      const ok = String(advice.summary || '') === 'GEOMETRY OK'
+      const head = `<div class="issue-row" data-kind="${ok ? 'ok' : 'warn'}">${ok ? '✓' : '⚠'} ${esc(advice.mode || 'AI')} 建议 · ${esc(advice.summary || '')}</div>`
+      box.innerHTML = head + sug.map((s) => `<div class="advice-item">• ${esc(s)}</div>`).join('')
+    }
+
+    async function resolveInitialPart() {
+      const [catalog, latestRes] = await Promise.all([
+        fetchCatalog(),
+        fetch(base + '/latest', { cache: 'no-store' }),
+      ])
+      partsCatalog = normalizeCatalog(catalog).parts
+      const names = normalizeCatalog(catalog).names
+      const latest = latestRes.ok ? await latestRes.json() : {}
+      const urlName = query.get('name') || ''
+      if (urlName && names.includes(urlName)) {
+        return { name: urlName, stamp: Number(latest.updatedAt) || 0 }
+      }
+      if (latest.name && names.includes(latest.name)) {
+        return { name: latest.name, stamp: Number(latest.updatedAt) || 0 }
+      }
+      for (let i = names.length - 1; i >= 0; i -= 1) {
+        const row = partsCatalog.find((item) => item.name === names[i])
+        if (row && (row.hasGlb || row.hasScript || row.hasStep)) {
+          return { name: names[i], stamp: 0 }
+        }
+      }
+      return { name: urlName || names[0] || 'loop_demo', stamp: 0 }
+    }
+
+    function modelUrl(relPath) {
+      return base + '/models/' + String(relPath || '').split('/').map(encodeURIComponent).join('/')
+    }
+
+    async function ensureGlb() {
+      const row = partsCatalog.find((item) => item.name === name)
+      const glbPath = row?.glbPath || `${name}.glb`
+      const probe = await fetch(modelUrl(glbPath), { cache: 'no-store' })
+      // A viewable GLB is a few KB; a tiny file is a broken export. Only trust
+      // it when it is large enough to hold a real mesh.
+      if (probe.ok && Number(probe.headers.get('content-length') || 0) >= 1024) return glbPath
+      if (!row || (!row.hasScript && !row.hasStep)) return null
+      setLoading('正在从 STEP 生成预览…')
+      const res = await fetch(base + '/ensure-glb?name=' + encodeURIComponent(name), { cache: 'no-store' })
+      const data = res.ok ? await res.json() : {}
+      if (data.ok !== false && data.artifacts && data.artifacts.glb) {
+        return data.artifacts.glb.replace(/^models\//, '')
+      }
+      if (probe.ok) return glbPath
+      return null
+    }
+
+    function computeEnvelope() {
+      const L = allParams.length || baseline.length
+      const W = allParams.width || baseline.width
+      const H = allParams.height || baseline.height
+      const c = partCenter.clone()
+      return {
+        min: new THREE.Vector3(c.x - L / 2, c.y - W / 2, c.z - H / 2),
+        max: new THREE.Vector3(c.x + L / 2, c.y + W / 2, c.z + H / 2),
+        half: new THREE.Vector3(L / 2, W / 2, H / 2),
+      }
+    }
+
+    function triangleArea(a, b, c) {
+      const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z
+      const acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z
+      const cx = aby * acz - abz * acy
+      const cy = abz * acx - abx * acz
+      const cz = abx * acy - aby * acx
+      return 0.5 * Math.hypot(cx, cy, cz)
+    }
+
+    function faceKeyFromTriangle(n, mid, scale) {
+      const nx = Math.round(n.x * 50) / 50
+      const ny = Math.round(n.y * 50) / 50
+      const nz = Math.round(n.z * 50) / 50
+      const d = -(n.x * mid.x + n.y * mid.y + n.z * mid.z) / Math.max(1e-6, scale)
+      const dd = Math.round(d * 200) / 200
+      return nx + ',' + ny + ',' + nz + '|' + dd
+    }
+
+    function rebuildFaceClusters() {
+      faceClusters = []
+      triToFace = null
+      meshTriangleOffset = null
+      if (!modelRoot || !scene) return
+      scene.updateMatrixWorld(true)
+      envelope = computeEnvelope()
+      const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3()
+      const n = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3()
+      const mid = new THREE.Vector3()
+      const ranges = (faceTopology && Array.isArray(faceTopology.ranges) && faceTopology.ranges.length)
+        ? faceTopology.ranges : null
+      const meshes = []
+      modelRoot.traverse((obj) => { if (obj.isMesh) meshes.push(obj) })
+      const offsets = new Map()
+      const triFaceArr = []
+      const recs = []
+      let triOffset = 0
+      // Authoritative triangle->face map from the topology sidecar (cad-viewer style):
+      // each triangle in the GLB belongs to the face whose [start,start+count) covers
+      // it. This is correct regardless of how GLTFLoader groups the meshes. If no
+      // sidecar, fall back to one face per mesh.
+      const faceCount = ranges ? ranges.length : meshes.length
+      for (let i = 0; i < faceCount; i += 1) recs.push({ id: i, normal: new THREE.Vector3(), area: 0, centroid: new THREE.Vector3(), count: 0, positions: [] })
+      let rangeCursor = 0
+      meshes.forEach((obj) => {
+        const geom = obj.geometry
+        const pos = geom.attributes.position
+        if (!pos) return
+        const index = geom.index
+        const triCount = Math.floor((index ? index.count : pos.count) / 3)
+        offsets.set(obj.uuid, triOffset)
+        for (let t = 0; t < triCount; t += 1) {
+          const g = triOffset + t
+          let fid
+          if (ranges) {
+            while (rangeCursor < ranges.length && g >= ranges[rangeCursor].start + ranges[rangeCursor].count) rangeCursor += 1
+            fid = rangeCursor < ranges.length ? ranges[rangeCursor].id : 0
+          } else {
+            fid = meshes.indexOf(obj)
+          }
+          const i = t * 3
+          const ia = index ? index.getX(i) : i
+          const ib = index ? index.getX(i + 1) : i + 1
+          const ic = index ? index.getX(i + 2) : i + 2
+          va.fromBufferAttribute(pos, ia).applyMatrix4(obj.matrixWorld)
+          vb.fromBufferAttribute(pos, ib).applyMatrix4(obj.matrixWorld)
+          vc.fromBufferAttribute(pos, ic).applyMatrix4(obj.matrixWorld)
+          ab.subVectors(vb, va)
+          ac.subVectors(vc, va)
+          n.crossVectors(ab, ac).normalize()
+          mid.addVectors(va, vb).add(vc).multiplyScalar(1 / 3)
+          const rec = recs[fid] || recs[0]
+          rec.area += triangleArea(va, vb, vc)
+          rec.centroid.add(mid)
+          rec.normal.add(n)
+          rec.count += 1
+          rec.positions.push(va.x, va.y, va.z, vb.x, vb.y, vb.z, vc.x, vc.y, vc.z)
+          triFaceArr[g] = fid
+        }
+        triOffset += triCount
+      })
+      meshTriangleOffset = offsets
+      triToFace = Int32Array.from(triFaceArr)
+      recs.forEach((rec) => {
+        rec.normal = rec.normal.lengthSq() ? rec.normal.clone().normalize() : new THREE.Vector3(0, 0, 1)
+        rec.centroid = rec.centroid.clone().divideScalar(Math.max(1, rec.count))
+      })
+      faceClusters = recs
+      for (const rec of faceClusters) rec.geometry = faceGeometry(rec.id)
+      rebuildFacePickGroup()
+      applyDisplayState()
+    }
+
+    function removeMesh(meshRef) {
+      if (meshRef) scene.remove(meshRef)
+    }
+
+    // cad-viewer-style dedicated face-pick surface: one invisible mesh per B-rep
+    // face (opacity 0), each carrying userData.faceId. Picking raycasts THIS group
+    // so it never depends on how GLTFLoader grouped the model's meshes.
+    function rebuildFacePickGroup() {
+      if (!scene) return
+      if (facePickGroup) {
+        scene.remove(facePickGroup)
+        for (const c of facePickGroup.children) c.geometry && c.geometry.dispose && c.geometry.dispose()
+      }
+      facePickGroup = new THREE.Group()
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })
+      for (const rec of faceClusters) {
+        const geom = new THREE.BufferGeometry()
+        geom.setAttribute('position', new THREE.Float32BufferAttribute(rec.positions, 3))
+        const m = new THREE.Mesh(geom, mat)
+        m.userData.faceId = rec.id
+        m.frustumCulled = false
+        facePickGroup.add(m)
+      }
+      scene.add(facePickGroup)
+    }
+
+    function faceGeometry(faceId) {
+      const rec = faceClusters[faceId]
+      if (!rec) return null
+      // Prefer the geometry cached in rebuildFaceClusters; fall back to building it.
+      if (rec.geometry) return rec.geometry
+      if (!rec.positions.length) return null
+      const geom = new THREE.BufferGeometry()
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(rec.positions.slice(), 3))
+      geom.computeVertexNormals()
+      rec.geometry = geom
+      return geom
+    }
+
+    function showFace(meshRef, faceId, color, opacity) {
+      if (meshRef) scene.remove(meshRef)
+      if (faceId === null || faceId === undefined) return null
+      const geom = faceGeometry(faceId)
+      if (!geom) return null
+      const mesh = new THREE.Mesh(
+        geom,
+        new THREE.MeshBasicMaterial({
+          color, transparent: true, opacity, depthTest: true, side: THREE.DoubleSide,
+          polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+        }),
+      )
+      mesh.raycast = () => {}
+      scene.add(mesh)
+      return mesh
+    }
+
+    function faceInfo(faceId) {
+      const rec = faceClusters[faceId]
+      if (!rec) return null
+      const nrm = rec.normal
+      const ax = Math.abs(nrm.x), ay = Math.abs(nrm.y), az = Math.abs(nrm.z)
+      let axis = '斜'
+      if (ax >= ay && ax >= az) axis = (nrm.x >= 0 ? '+X' : '-X')
+      else if (ay >= ax && ay >= az) axis = (nrm.y >= 0 ? '+Y' : '-Y')
+      else if (az >= ax && az >= ay) axis = (nrm.z >= 0 ? '+Z' : '-Z')
+      return {
+        id: faceId,
+        area: rec.area,
+        centroid: [rec.centroid.x, rec.centroid.y, rec.centroid.z],
+        normal: [rec.normal.x, rec.normal.y, rec.normal.z],
+        axis,
+        count: rec.count,
+      }
+    }
+
+    function renderFaceInfo() {
+      const box = document.getElementById('face-info')
+      if (!box) return
+      if (selected === null || !faceClusters[selected]) {
+        box.innerHTML = '<div class="info-empty">在 3D 视图中点选一个面。</div>'
+        return
+      }
+      const info = faceInfo(selected)
+      const f = (v) => Number(v).toFixed(2)
+      const topo = (faceTopology && faceTopology.faces && faceTopology.faces[selected]) ? faceTopology.faces[selected] : null
+      const typeRow = topo
+        ? '<div class="info-row"><span>类型</span><span class="info-val">' + esc(topo.type) + '</span></div>'
+        : ''
+      box.innerHTML =
+        '<div class="info-row"><span>面 #' + info.id + '</span><span class="info-val">' + info.axis + '</span></div>'
+        + typeRow
+        + '<div class="info-row"><span>面积</span><span class="info-val">' + f(info.area) + ' mm²</span></div>'
+        + '<div class="info-row"><span>法向</span><span class="info-val">(' + info.normal.map(f).join(', ') + ')</span></div>'
+        + '<div class="info-row"><span>质心</span><span class="info-val">(' + info.centroid.map(f).join(', ') + ')</span></div>'
+        + '<div class="info-row"><span>三角形</span><span class="info-val">' + info.count + '</span></div>'
+    }
+
+    function selectFace(faceId) {
+      if (faceId === null || faceId === undefined || !faceClusters[faceId]) {
+        clearSelect()
+        return
+      }
+      selected = faceId
+      highlight = showFace(highlight, faceId, 0x2563eb, 0.32)
+      renderFaceInfo()
+      renderTree()
+      selectFaceFeatureLink(faceId)
+      setStatus('已选中面 #' + faceId, 'ok')
+    }
+
+    // Field factory: one number input per editable param, so a single Edit card
+    // exposes every adjustable dimension (length/width/height/hole_d) at once.
+    // `featureSel` uses the FEATURES key ('length'/'width'/'height'/'hole') so it
+    // stays consistent with renderParamList; here we convert each PARAM_ORDER key
+    // to that same key for highlighting.
+    function featureKey(key) {
+      return key === 'hole_d' ? 'hole' : key
+    }
+
+    function renderBatchFields(focus) {
+      const rows = []
+      for (const key of PARAM_ORDER) {
+        const spec = FEATURES[featureKey(key)]
+        if (!spec || allParams[spec.id] == null) continue
+        const active = featureSel === featureKey(key) ? ' data-active="true"' : ''
+        const shown = Number(allParams[spec.id]).toFixed(key === 'hole_d' ? 1 : 2)
+        rows.push(`<div class="batch-row"${active} data-param="${featureKey(key)}">`
+          + `<label>${PARAM_LABELS[key] || spec.title}</label>`
+          + `<input type="number" min="0.1" step="0.1" value="${shown}" data-param="${featureKey(key)}" />`
+          + `<span class="unit">mm</span>`
+          + `<span class="batch-hint">${spec.hint}</span>`
+          + `</div>`)
+      }
+      batchFieldsEl.innerHTML = rows.join('')
+      if (focus) {
+        const el = batchFieldsEl.querySelector(`input[data-param="${focus}"]`)
+        if (el) { el.focus(); el.select() }
+      }
+    }
+
+    function selectParam(feature) {
+      featureSel = feature
+      renderParamList()
+      const spec = FEATURES[feature]
+      const anyParam = PARAM_ORDER.some((key) => FEATURES[featureKey(key)] && allParams[FEATURES[featureKey(key)].id] != null)
+      if (!anyParam) {
+        inspectorEmpty.hidden = false
+        inspectorEdit.hidden = true
+        inspectorEmpty.textContent = spec
+          ? ('选中面关联「' + spec.title + '」，但该零件未参数化；可在对话里用 easycad_gen / easycad_apply 调整。')
+          : '该零件未参数化，无法在预览中改尺寸。'
+        return
+      }
+      document.getElementById('card-title').textContent = spec ? spec.title : '编辑尺寸'
+      document.getElementById('card-hint').textContent = spec ? spec.hint : '修改任一参数，点「应用」统一重建。'
+      inspectorEmpty.hidden = true
+      inspectorEdit.hidden = false
+      renderBatchFields(spec && allParams[spec.id] != null ? feature : null)
+      setStatus(spec ? '编辑 ' + spec.title : '编辑参数', '')
+    }
+
+    function clearSelect() {
+      selected = null
+      featureSel = null
+      if (highlight) { scene.remove(highlight); highlight = null }
+      if (hoverMesh) { scene.remove(hoverMesh); hoverMesh = null }
+      inspectorEmpty.hidden = false
+      inspectorEdit.hidden = true
+      renderParamList()
+      renderFaceInfo()
+      setStatus('就绪', '')
+      renderTree()
+    }
+
+    function selectFaceFeatureLink(faceId) {
+      const info = faceInfo(faceId)
+      if (!info) return
+      const map = { '+X': 'length', '-X': 'length', '+Y': 'width', '-Y': 'width', '+Z': 'height', '-Z': 'height' }
+      const feature = map[info.axis]
+      if (feature && FEATURES[feature]) selectParam(feature)
+    }
+
+    function buildEdgeLines() {
+      for (const line of edgeLineSegments) { if (line.parent) line.parent.remove(line) }
+      edgeLineSegments = []
+      if (!modelRoot) return
+      // Edges are parented under their source mesh so they inherit the model's
+      // transform (scale/rotate) — no need to rebuild them on a param live-preview.
+      modelRoot.traverse((obj) => {
+        if (!obj.isMesh || !obj.geometry) return
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(obj.geometry, 30),
+          new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.7 }),
+        )
+        edges.visible = showEdges
+        edges.raycast = () => {}
+        obj.add(edges)
+        edgeLineSegments.push(edges)
+      })
+    }
+
+    function applyDisplayState() {
+      for (const line of edgeLineSegments) line.visible = showEdges
+      if (gridHelper) gridHelper.visible = showGrid
+    }
+
+    function syncDisplayToggles() {
+      const edgeBtn = document.getElementById('toggle-edges')
+      const gridBtn = document.getElementById('toggle-grid')
+      if (edgeBtn) {
+        edgeBtn.dataset.active = String(showEdges)
+        const val = edgeBtn.querySelector('.param-value')
+        if (val) val.textContent = showEdges ? '开' : '关'
+      }
+      if (gridBtn) {
+        gridBtn.dataset.active = String(showGrid)
+        const val = gridBtn.querySelector('.param-value')
+        if (val) val.textContent = showGrid ? '开' : '关'
+      }
+    }
+
+    function toggleEdges() {
+      showEdges = !showEdges
+      applyDisplayState()
+      syncDisplayToggles()
+    }
+
+    function toggleGrid() {
+      showGrid = !showGrid
+      applyDisplayState()
+      syncDisplayToggles()
+    }
+
+    function updateModelScale() {
+      if (!modelRoot) return
+      const sx = (allParams.length || baseline.length) / baseline.length
+      const sy = (allParams.width || baseline.width) / baseline.width
+      const sz = (allParams.height || baseline.height) / baseline.height
+      modelRoot.scale.set(sx, sy, sz)
+    }
+
+    function applyPreviewScale() {
+      updateModelScale()
+      rebuildFaceClusters()
+    }
+
+    // Fired once per model load: apply the size scale, then rebuild the face
+    // clusters and (cheaply) the display state. Nothing else needs a full rebuild.
+    function syncModelAndClusters() {
+      updateModelScale()
+      rebuildFaceClusters()
+    }
+
+    function pickAt(clientX, clientY) {
+      if (!camera || !facePickGroup || !facePickGroup.children.length) return null
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hits = raycaster.intersectObjects(facePickGroup.children, false)
+      if (!hits.length) return null
+      const fid = hits[0].object.userData.faceId
+      return Number.isFinite(fid) ? fid : null
+    }
+
+    function pick(event) {
+      return pickAt(event.clientX, event.clientY)
+    }
+
+    function alignGrid(object) {
+      const box = new THREE.Box3().setFromObject(object)
+      const size = box.getSize(new THREE.Vector3())
+      const span = Math.max(size.x, size.y, size.z) * 2.5 || 100
+      const center = box.getCenter(new THREE.Vector3())
+      if (gridHelper) scene.remove(gridHelper)
+      gridHelper = new THREE.GridHelper(span, Math.min(40, Math.max(10, Math.round(span / 10))), 0xc4c9d0, 0xdce0e5)
+      gridHelper.position.set(center.x, box.min.y - 0.02, center.z)
+      scene.add(gridHelper)
+    }
+
+    function fitCamera(object) {
+      const box = new THREE.Box3().setFromObject(object)
+      const size = box.getSize(new THREE.Vector3()).length()
+      partCenter = box.getCenter(new THREE.Vector3())
+      viewDistance = size * 1.15
+      controls.target.copy(partCenter)
+      camera.position.copy(partCenter).add(new THREE.Vector3(viewDistance, viewDistance * 0.75, viewDistance))
+      camera.near = Math.max(size / 200, 0.01)
+      camera.far = size * 30
+      camera.updateProjectionMatrix()
+      alignGrid(object)
+    }
+
+    function setView(preset) {
+      if (!modelRoot || !camera) return
+      // glTF/three.js is Y-up (build123d Z-up is rotated to +Y by export_gltf),
+      // so the axis-aligned views must use the Y-up axes.
+      const offsets = {
+        iso: new THREE.Vector3(1, 1, 1),
+        front: new THREE.Vector3(0, 0, 1),
+        top: new THREE.Vector3(0, 1, 0),
+        right: new THREE.Vector3(1, 0, 0),
+      }
+      const off = offsets[preset] || offsets.iso
+      controls.target.copy(partCenter)
+      camera.position.copy(partCenter).add(off.clone().normalize().multiplyScalar(viewDistance))
+      controls.update()
+      document.querySelectorAll('[data-view]').forEach((btn) => {
+        btn.dataset.active = btn.dataset.view === preset ? 'true' : 'false'
+      })
+    }
+
+    function ensureScene() {
+      if (scene) return
+      scene = new THREE.Scene()
+      scene.background = new THREE.Color(0xeceff3)
+      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000)
+      renderer = new THREE.WebGLRenderer({ antialias: true })
+      renderer.setClearColor(0xeceff3, 1)
+      view.insertBefore(renderer.domElement, status)
+      renderer.domElement.style.touchAction = 'none'
+      renderer.domElement.style.userSelect = 'none'
+      controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.dampingFactor = 0.1
+      controls.enableRotate = true
+      controls.enablePan = true
+      controls.enableZoom = true
+      controls.rotateSpeed = 1
+      controls.panSpeed = 1.35
+      controls.zoomSpeed = 1
+      if ('zoomToCursor' in controls) controls.zoomToCursor = true
+      controls.minPolarAngle = 0
+      controls.maxPolarAngle = Math.PI
+      scene.add(new THREE.AmbientLight(0xffffff, 0.82))
+      const key = new THREE.DirectionalLight(0xffffff, 0.78)
+      key.position.set(3, 4, 5)
+      scene.add(key)
+      const fill = new THREE.DirectionalLight(0xffffff, 0.34)
+      fill.position.set(-2, -1, 3)
+      scene.add(fill)
+      function resize() {
+        const w = view.clientWidth, h = view.clientHeight
+        camera.aspect = w / Math.max(h, 1)
+        camera.updateProjectionMatrix()
+        renderer.setSize(w, h, false)
+      }
+      resize()
+      new ResizeObserver(resize).observe(view)
+      renderer.domElement.addEventListener('pointerdown', (event) => {
+        down.x = event.clientX
+        down.y = event.clientY
+        down.at = Date.now()
+      })
+      let hoverRaf = 0
+      let lastHoverX = 0
+      let lastHoverY = 0
+      renderer.domElement.addEventListener('pointermove', (event) => {
+        lastHoverX = event.clientX
+        lastHoverY = event.clientY
+        if (hoverRaf) return
+        hoverRaf = requestAnimationFrame(() => {
+          hoverRaf = 0
+          const fid = pickAt(lastHoverX, lastHoverY)
+          hoverMesh = showFace(hoverMesh, fid !== null && fid !== selected ? fid : null, 0x60a5fa, 0.16)
+          renderer.domElement.style.cursor = (fid !== null) ? 'pointer' : ''
+        })
+      })
+      renderer.domElement.addEventListener('pointerup', (event) => {
+        if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 5) return
+        if (Date.now() - down.at > 500) return
+        const fid = pick(event)
+        if (fid === null) { clearSelect(); return }
+        selectFace(fid)
+      })
+      function tick() {
+        controls.update()
+        renderer.render(scene, camera)
+        requestAnimationFrame(tick)
+      }
+      tick()
+    }
+
+    async function loadGlb(token, glbPath, keepView = false) {
+      ensureScene()
+      if (modelRoot) { scene.remove(modelRoot) }
+      if (highlight) { scene.remove(highlight); highlight = null }
+      if (hoverMesh) { scene.remove(hoverMesh); hoverMesh = null }
+      let gltf
+      let path = glbPath || partsCatalog.find((item) => item.name === name)?.glbPath || `${name}.glb`
+      try {
+        gltf = await new GLTFLoader().loadAsync(modelUrl(path) + '?t=' + Date.now())
+      } catch (err) {
+        // A broken or absent GLB: ask the host to rebuild it, then retry once.
+        const regenerated = await ensureGlb()
+        if (token !== loadingToken || !regenerated) return false
+        path = regenerated
+        gltf = await new GLTFLoader().loadAsync(modelUrl(path) + '?t=' + Date.now())
+      }
+      if (token !== loadingToken) return false
+      modelRoot = gltf.scene
+      scene.add(modelRoot)
+      if (!keepView) { fitCamera(modelRoot); setView('iso') }
+      selected = null
+      featureSel = null
+      buildEdgeLines()
+      syncModelAndClusters()
+      syncDisplayToggles()
+      renderFaceInfo()
+      return true
+    }
+
+    async function loadParams() {
+      const res = await fetch(base + '/params?name=' + encodeURIComponent(name), { cache: 'no-store' })
+      const data = res.ok ? await res.json() : {}
+      allParams = data.values || {}
+      if (allParams.length && allParams.width && allParams.height) {
+        baseline = { length: allParams.length, width: allParams.width, height: allParams.height }
+      }
+      renderParamList()
+      renderArtifacts()
+      syncChrome()
+      faceTopology = await fetchJson(base + '/models/' + name + '.topology.json')
+      await Promise.all([renderIssues(), renderTree(), renderMetadata(), renderAdvice()])
+    }
+
+    async function showPart(next, stamp) {
+      if (!next || next === name && stamp === lastStamp && modelRoot) return
+      const token = ++loadingToken
+      name = next
+      if (stamp) lastStamp = stamp
+      const url = new URL(location.href)
+      url.searchParams.set('name', name)
+      history.replaceState(null, '', url)
+      clearSelect()
+      syncChrome()
+      setLoading('加载中…')
+      setStatus(`打开 ${name}`, '')
+      try {
+        await loadParams()
+        if (token !== loadingToken) return
+        const glbPath = await ensureGlb()
+        if (token !== loadingToken) return
+        if (!glbPath) {
+          setLoading('无法预览：缺少 GLB，且无法从 STEP 生成。请先在对话里 easycad_gen / easycad_export。')
+          setStatus('预览不可用', 'error')
+          return
+        }
+        await loadGlb(token, glbPath)
+        if (token !== loadingToken) return
+        clearLoading()
+        setStatus(`已加载 ${name}`, 'ok')
+      } catch (err) {
+        if (token !== loadingToken) return
+        setLoading(err.message || String(err))
+        setStatus('加载失败', 'error')
+      }
+    }
+
+    async function fillPartsSelect(names) {
+      const list = names || []
+      if (name && !list.includes(name)) list.unshift(name)
+      const key = list.join('|')
+      if (partsSelect.dataset.key === key) return
+      partsSelect.dataset.key = key
+      partsSelect.innerHTML = list.map((item) => '<option value="' + item + '">' + item + '</option>').join('')
+      partsSelect.value = name
+    }
+
+    async function pollLatest() {
+      try {
+        const [latestRes, catalog, tree] = await Promise.all([
+          fetch(base + '/latest', { cache: 'no-store' }),
+          fetchCatalog(),
+          fetchTree(),
+        ])
+        partsCatalog = normalizeCatalog(catalog).parts
+        fileTree = tree
+        await fillPartsSelect(normalizeCatalog(catalog).names)
+        renderFileTree()
+        const latest = latestRes.ok ? await latestRes.json() : {}
+        const stamp = Number(latest.updatedAt) || 0
+        if (latest.name && stamp && stamp !== lastStamp) {
+          await showPart(latest.name, stamp)
+        }
+      } catch (err) {}
+    }
+
+    fileTreeEl.addEventListener('click', (event) => {
+      const toggle = event.target.closest('[data-dir]')
+      if (toggle) {
+        const dir = toggle.dataset.dir
+        if (expandedDirs.has(dir)) expandedDirs.delete(dir)
+        else expandedDirs.add(dir)
+        renderFileTree()
+        return
+      }
+      const file = event.target.closest('[data-stem]')
+      if (!file) return
+      showPart(file.dataset.stem, lastStamp)
+    })
+
+    paramList.addEventListener('click', (event) => {
+      const row = event.target.closest('[data-feature]')
+      if (!row) return
+      selectParam(row.dataset.feature)
+    })
+
+    const treeBox = document.getElementById('tree')
+    if (treeBox) treeBox.addEventListener('click', (event) => {
+      const row = event.target.closest('[data-face]')
+      if (!row) return
+      const fid = Number(row.dataset.face)
+      if (Number.isFinite(fid)) selectFace(fid)
+    })
+
+    document.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.addEventListener('click', () => setView(btn.dataset.view))
+    })
+    document.getElementById('reset-view').addEventListener('click', () => {
+      if (modelRoot) fitCamera(modelRoot)
+      setView('iso')
+    })
+
+    let scaleTimer = 0
+    // Every number input in the batch card drives a cheap live-preview scale; the
+    // expensive face-cluster rebuild is deferred until the user pauses typing.
+    batchFieldsEl.addEventListener('input', (event) => {
+      const input = event.target.closest('input[data-param]')
+      if (!input) return
+      const param = input.dataset.param
+      const spec = FEATURES[param]
+      if (!spec) return
+      const next = Number(input.value)
+      if (!Number.isFinite(next)) return
+      allParams[spec.id] = next
+      updateModelScale()
+      if (scaleTimer) clearTimeout(scaleTimer)
+      scaleTimer = setTimeout(applyPreviewScale, 200)
+      syncChrome()
+    })
+
+    const edgeToggle = document.getElementById('toggle-edges')
+    if (edgeToggle) edgeToggle.addEventListener('click', toggleEdges)
+    const gridToggle = document.getElementById('toggle-grid')
+    if (gridToggle) gridToggle.addEventListener('click', toggleGrid)
+
+    document.getElementById('clear').addEventListener('click', clearSelect)
+    document.getElementById('form').addEventListener('submit', async (event) => {
+      event.preventDefault()
+      // Read every editable field in the batch card into the params payload.
+      let touched = false
+      batchFieldsEl.querySelectorAll('input[data-param]').forEach((input) => {
+        const param = input.dataset.param
+        const spec = FEATURES[param]
+        if (!spec) return
+        const next = Number(input.value)
+        if (!Number.isFinite(next)) return
+        allParams[spec.id] = next
+        touched = true
+      })
+      if (!touched) return
+      applyBtn.disabled = true
+      setStatus('正在重建几何…', '')
+      try {
+        const res = await fetch(base + '/apply', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, params: allParams }),
+        })
+        const data = await res.json()
+        if (!res.ok || data.ok === false) throw new Error(data.error || '重建失败')
+        if (data.params && data.params.values) allParams = data.params.values
+        if (allParams.length && allParams.width && allParams.height) {
+          baseline = { length: allParams.length, width: allParams.width, height: allParams.height }
+        }
+        const catalog = await fetchCatalog()
+        partsCatalog = normalizeCatalog(catalog).parts
+        fileTree = await fetchTree()
+        await loadGlb(++loadingToken, undefined, true)
+        renderParamList()
+        renderBatchFields(featureSel && FEATURES[featureSel] && allParams[FEATURES[featureSel].id] != null ? featureSel : null)
+        renderFaceInfo()
+        syncChrome()
+        await Promise.all([renderIssues(), renderTree(), renderMetadata(), renderAdvice()])
+        setStatus('参数已更新', 'ok')
+      } catch (err) {
+        setStatus(err.message || String(err), 'error')
+      } finally {
+        applyBtn.disabled = false
+      }
+    })
+
+    partsSelect.addEventListener('change', () => { showPart(partsSelect.value, lastStamp) })
+
+    const [initial, tree] = await Promise.all([resolveInitialPart(), fetchTree()])
+    fileTree = tree
+    for (const node of fileTree) {
+      if (node.kind === 'dir') expandedDirs.add(node.path)
+    }
+    partsCatalog = partsCatalog.length ? partsCatalog : normalizeCatalog(await fetchCatalog()).parts
+    await fillPartsSelect(partsCatalog.map((row) => row.name))
+    lastStamp = initial.stamp || 0
+    renderFileTree()
+    await showPart(initial.name, lastStamp)
+    setInterval(pollLatest, 2500)
+  </script>
+</body>
+</html>
