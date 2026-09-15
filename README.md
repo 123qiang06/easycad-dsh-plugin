@@ -6,6 +6,17 @@ Ask for a part in plain language → the agent writes build123d Python, exports 
 
 ![EasyCAD workbench](docs/easycad-hero.png)
 
+On an existing part, switch the right pane to **流道系统**. The 3D view can show the part, the part+runner shot, or two die halves opened on the parting face (pockets = cavity, grooves = runner).
+
+![EasyCAD runner workbench](docs/easycad-runner.png)
+
+The runner bench is four steps on the same stem (not a new part, not LLM Sweep):
+
+1. **条件** — parting direction, gate-count range, cost vs fill vs picked-face preference; click faces green (gates) or red (keep-out).
+2. **提议** — candidates **A · cost** (short tree) and **B · fill_quality** (same-side multi-gate); **C** if you picked faces.
+3. **实例** — edit `gate_width` / `gate_thick` / `runner_in` / `runner_out` / `biscuit_d`, then **生成流道**.
+4. **核对** — toggle **零件** / **浇注系统** / **型腔**, plus rule QA (keep-out, gate count, tapering sections).
+
 ## Features
 
 - **Text → parametric CAD.** A `text-to-cad` skill drives brief → review → gen → QA → export, locking `overall_size_mm` and `special_features` from the prompt.
