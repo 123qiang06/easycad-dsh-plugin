@@ -38,11 +38,6 @@ def build_ir(name: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "note": "Axis-aligned bounding box. Feature sizes are not this field.",
             },
             {
-                "id": "single_body",
-                "kind": "single_body",
-                "required": bool(payload.get("single_body", True)),
-            },
-            {
                 "id": "watertight",
                 "kind": "watertight",
                 "required": bool(payload.get("watertight", True)),
@@ -103,7 +98,6 @@ def brief_view(ir: dict[str, Any]) -> dict[str, Any]:
         "name": ir["name"],
         "units": ir.get("units") or "mm",
         "overall_size_mm": ir["envelope"]["size_mm"],
-        "single_body": True,
         "watertight": True,
         "special_features": [
             item.get("text") or item.get("id")

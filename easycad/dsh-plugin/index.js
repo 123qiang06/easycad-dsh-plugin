@@ -7,7 +7,8 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { attachCadRoutes } from './routes.js'
+import { attachCadRoutes, buildPartMemory, readUiLocale, replyInject } from './routes.js'
+import { attachCadPolicy } from './policy.js'
 
 export const name = 'easycad'
 export const inject = ['tools', 'webServer']
@@ -20,6 +21,7 @@ function pythonBin() {
   if (process.env.EASYCAD_PYTHON) return process.env.EASYCAD_PYTHON
   const home = homedir()
   const candidates = [
+    'D:\\LeStoreDownload\\anaconda3\\envs\\multi_agent_cad\\python.exe',
     join(home, 'anaconda3', 'envs', 'multi_agent_cad', 'python.exe'),
     join(home, 'miniconda3', 'envs', 'multi_agent_cad', 'python.exe'),
   ]
@@ -70,8 +72,18 @@ function runCli(cliArgs, signal, stdinText) {
   })
 }
 
+function attachReply(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  try {
+    const locale = readUiLocale(join(EASYCAD_ROOT, 'models'))
+    value.reply_in = locale
+    value.reply = replyInject(locale)
+  } catch {}
+  return value
+}
+
 function textResult(value) {
-  return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+  return [{ type: 'text', text: JSON.stringify(attachReply(value), null, 2) }]
 }
 
 // ---- persistent build123d worker -------------------------------------------
@@ -94,34 +106,65 @@ function spawnWorkerChild() {
   return workerChild
 }
 
-function workerJob(job, timeoutMs = 180000) {
+function workerJob(job, timeoutMs = 180000, signal) {
   const run = () => new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(new Error('build123d worker aborted'))
+      return
+    }
     let child = workerChild
     if (!child || child.exitCode !== null) child = spawnWorkerChild()
     let buf = ''
     let settled = false
-    const cleanup = () => { child.stdout.removeListener('data', onData) }
+    const cleanup = () => {
+      child.stdout.removeListener('data', onData)
+      if (signal) signal.removeEventListener('abort', onAbort)
+    }
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      clearTimeout(timer)
+      fn(value)
+    }
+    const onAbort = () => {
+      try { child.kill() } catch {}
+      workerChild = null
+      finish(reject, new Error('build123d worker aborted'))
+    }
     const onData = (chunk) => {
       buf += chunk.toString('utf8')
       const nl = buf.indexOf('\n')
       if (nl < 0) return
       const line = buf.slice(0, nl).trim()
       buf = buf.slice(nl + 1)
-      if (!settled) { settled = true; cleanup(); clearTimeout(timer); resolve(JSON.parse(line)) }
+      try {
+        finish(resolve, JSON.parse(line))
+      } catch (error) {
+        finish(reject, error)
+      }
     }
     const timer = setTimeout(() => {
-      if (settled) return
-      settled = true; cleanup()
       try { child.kill() } catch {}
       workerChild = null
-      reject(new Error('build123d worker timed out'))
+      finish(reject, new Error('build123d worker timed out'))
     }, timeoutMs)
+    if (signal) signal.addEventListener('abort', onAbort, { once: true })
     child.stdout.on('data', onData)
     child.stdin.write(JSON.stringify(job) + '\n')
   })
   const p = workerTail.then(run, run)
   workerTail = p.catch(() => {})
   return p
+}
+
+function occt(job, exec, timeoutMs = 180000) {
+  return workerJob(job, timeoutMs, exec && exec.signal)
+}
+
+function expectSizeOf(args) {
+  if (!Array.isArray(args.expect_size) || args.expect_size.length !== 3) return undefined
+  return args.expect_size.map(Number)
 }
 
 function unimplemented(name, note) {
@@ -154,7 +197,7 @@ const sizeOutSchema = {
 
 const qaSchema = {
   type: 'object',
-  description: 'Geometry checks: overall_dimension (if expect_size given), single_body, watertight.',
+  description: 'Geometry checks: overall_dimension (if expect_size given), watertight.',
   additionalProperties: true,
   properties: {
     pass: { type: 'boolean' },
@@ -200,12 +243,15 @@ export function apply(ctx) {
     easycadRoot: EASYCAD_ROOT,
     workerJob,
   })
+  attachCadPolicy(ctx, join(EASYCAD_ROOT, 'models'), workerJob)
 
   ctx.tools.register({
     name: 'easycad_brief',
     description:
       'Save a structured CAD brief to models/<name>.brief.json before writing code. '
-      + 'Use when the user describes a part: lock overall_size_mm and special_features, then call easycad_gen with the same expect_size.',
+      + 'Hard-gates missing envelope, undimensioned holes, and assembly/edit mismatches. '
+      + 'If ok is false, revise the IR and brief again — do not easycad_gen. '
+      + 'After a passing brief, call easycad_review before gen.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -214,7 +260,6 @@ export function apply(ctx) {
         name: nameSchema,
         overall_size_mm: sizeSchema,
         units: { type: 'string', description: 'Length unit. Default mm.' },
-        single_body: { type: 'boolean', description: 'Whether QA should require exactly one solid. Default true.' },
         watertight: { type: 'boolean', description: 'Whether QA should require a valid closed solid. Default true.' },
         special_features: {
           type: 'array',
@@ -226,7 +271,9 @@ export function apply(ctx) {
         task_type: {
           type: 'string',
           enum: ['part', 'edit', 'assembly'],
-          description: 'Workflow hint stored on IR meta. Default part.',
+          description:
+            'part = new stem (plugin opens a fresh dsh session). '
+            + 'edit = existing models/<name>.step.py in this session. Default part.',
         },
         origin: {
           type: 'string',
@@ -261,7 +308,6 @@ export function apply(ctx) {
       const payload = {
         overall_size_mm: args.overall_size_mm,
         units: args.units,
-        single_body: args.single_body,
         watertight: args.watertight,
         special_features: args.special_features,
         intent: args.intent,
@@ -279,10 +325,88 @@ export function apply(ctx) {
   })
 
   ctx.tools.register({
+    name: 'easycad_memory',
+    description:
+      'Load the per-part memory card for models/<name>: create vs edit, plus trust-graded inject. '
+      + 'Use inject.high (STEP facts / IR envelope / PARAMS / QA) as sizes; inject.medium is intent/features. '
+      + 'Do not treat advice or chat numbers as geometry. Call first when opening or switching a part. '
+      + 'Follow inject.reply / reply_in: zh = Simplified Chinese, en = English. Do not mix languages. '
+      + 'mode=edit means stay in this chat; mode=create means a new stem (new dsh session).',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: {
+        name: nameSchema,
+      },
+    },
+    output: outputSchema(['ok', 'name', 'exists', 'mode'], {
+      name: { type: 'string' },
+      exists: { type: 'boolean' },
+      mode: { type: 'string' },
+      sessionId: { type: 'string' },
+      intent: { type: 'string' },
+      envelope: { type: 'object' },
+      params: { type: 'object' },
+      features: { type: 'array' },
+      qa: { type: 'object' },
+      facts: { type: 'object' },
+      artifacts: { type: 'object', additionalProperties: true },
+      memory_path: { type: 'string' },
+      hint: { type: 'string' },
+      locale: { type: 'string' },
+      reply_in: { type: 'string' },
+      reply: { type: 'string' },
+      inject: { type: 'object', additionalProperties: true },
+      trust: { type: 'object', additionalProperties: true },
+    }),
+    timeoutMs: 10000,
+    async execute(args) {
+      return buildPartMemory(join(EASYCAD_ROOT, 'models'), String(args.name))
+    },
+  })
+
+  ctx.tools.register({
+    name: 'easycad_review',
+    description:
+      'Read-only IR vs intent/facts verdict for models/<name>. Independent of chat history. '
+      + 'Call after easycad_brief and before easycad_gen. If pass is false, only revise the IR with easycad_brief — do not gen. '
+      + 'Does not write STEP or source.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: {
+        name: nameSchema,
+        intent: { type: 'string', description: 'Optional current user description to check IR drift.' },
+      },
+    },
+    output: outputSchema(['ok', 'name', 'pass'], {
+      name: { type: 'string' },
+      pass: { type: 'boolean' },
+      defects: { type: 'array' },
+      revisions: { type: 'array', items: { type: 'string' } },
+      hint: { type: 'string' },
+      envelope: { type: 'object' },
+      intent: { type: 'string' },
+    }),
+    timeoutMs: 15000,
+    async execute(args, exec) {
+      return runCli(
+        ['review', String(args.name), '--intent', String(args.intent || '')],
+        exec?.signal,
+      )
+    },
+  })
+
+  ctx.tools.register({
     name: 'easycad_gen',
     description:
-      'Write models/<name>.step.py, run gen_step(), export STEP+GLB, return facts plus qa. The in-page EasyCAD pane opens on the right. '
-      + 'ALWAYS pass expect_size from the brief/spec. Do not call easycad_inspect or easycad_qa right after this. '
+      'Write models/<name>.step.py, run gen_step(), export STEP+GLB, return facts plus qa. '
+      + 'Requires a passing easycad_brief IR (and easycad_review). Refuses undimensioned IR, Hole(diameter) mistakes, and a third consecutive empty-spin gen (source Jaccard high and QA/envelope not closer). '
+      + 'Second stall still runs but returns loop.hint to change PARAMS/features. '
+      + 'This chat must already be bound to this name; a different bound stem is denied on the host. '
+      + 'ALWAYS pass expect_size from the brief. Do not call easycad_inspect or easycad_qa right after this. '
       + 'source must be complete Python with from build123d import * and def gen_step() returning one solid. Hole(r) is a radius.',
     parameters: {
       type: 'object',
@@ -304,15 +428,20 @@ export function apply(ctx) {
       similarity: { type: 'object', additionalProperties: true },
       advice: { type: 'object', additionalProperties: true },
       open: { type: 'string' },
+      loop: { type: 'object', additionalProperties: true },
+      hint: { type: 'string' },
+      blocked: { type: 'string' },
+      defects: { type: 'array' },
     }),
     timeoutMs: 180000,
     async execute(args, exec) {
-      const cliArgs = ['write-gen', '--name', String(args.name), '--source-stdin']
-      if (Array.isArray(args.expect_size) && args.expect_size.length === 3) {
-        cliArgs.push('--expect-size', args.expect_size.map(Number).join(','))
-      }
-      if (args.ref_image) cliArgs.push('--ref', String(args.ref_image))
-      const result = await runCli(cliArgs, exec?.signal, String(args.source))
+      const result = await occt({
+        cmd: 'gen',
+        name: String(args.name),
+        source: String(args.source),
+        expect_size: expectSizeOf(args),
+        ref_image: args.ref_image ? String(args.ref_image) : '',
+      }, exec)
       result.open = viewerUrl(args.name)
       return result
     },
@@ -342,19 +471,19 @@ export function apply(ctx) {
     }),
     timeoutMs: 120000,
     async execute(args, exec) {
-      const cliArgs = ['inspect', String(args.name)]
-      if (Array.isArray(args.expect_size) && args.expect_size.length === 3) {
-        cliArgs.push('--expect-size', args.expect_size.map(Number).join(','))
-      }
-      if (args.ref_image) cliArgs.push('--ref', String(args.ref_image))
-      return runCli(cliArgs, exec?.signal)
+      return occt({
+        cmd: 'inspect',
+        name: String(args.name),
+        expect_size: expectSizeOf(args),
+        ref_image: args.ref_image ? String(args.ref_image) : '',
+      }, exec, 120000)
     },
   })
 
   ctx.tools.register({
     name: 'easycad_qa',
     description:
-      'Re-check an existing part: overall_dimension (if expect_size set), single_body, watertight. '
+      'Re-check an existing part: overall_dimension (if expect_size set), watertight. '
       + 'Skip after easycad_gen — that call already returns qa. Use when reviewing a file already on disk.',
     parameters: {
       type: 'object',
@@ -376,12 +505,12 @@ export function apply(ctx) {
     }),
     timeoutMs: 120000,
     async execute(args, exec) {
-      const cliArgs = ['qa', String(args.name)]
-      if (Array.isArray(args.expect_size) && args.expect_size.length === 3) {
-        cliArgs.push('--expect-size', args.expect_size.map(Number).join(','))
-      }
-      if (args.ref_image) cliArgs.push('--ref', String(args.ref_image))
-      return runCli(cliArgs, exec?.signal)
+      return occt({
+        cmd: 'qa',
+        name: String(args.name),
+        expect_size: expectSizeOf(args),
+        ref_image: args.ref_image ? String(args.ref_image) : '',
+      }, exec, 120000)
     },
   })
 
@@ -421,11 +550,11 @@ export function apply(ctx) {
     }),
     timeoutMs: 120000,
     async execute(args, exec) {
-      return runCli(
-        ['measure', String(args.name), '--json-stdin'],
-        exec?.signal,
-        JSON.stringify(args.checks),
-      )
+      return occt({
+        cmd: 'measure',
+        name: String(args.name),
+        checks: args.checks,
+      }, exec, 120000)
     },
   })
 
@@ -462,10 +591,8 @@ export function apply(ctx) {
     }),
     timeoutMs: 180000,
     async execute(args, exec) {
-      const cliArgs = ['export', String(args.name)]
       const formats = Array.isArray(args.formats) && args.formats.length ? args.formats : ['stl']
-      for (const fmt of formats) cliArgs.push('--format', String(fmt))
-      return runCli(cliArgs, exec?.signal)
+      return occt({ cmd: 'export', name: String(args.name), formats }, exec)
     },
   })
 
@@ -506,7 +633,8 @@ export function apply(ctx) {
     name: 'easycad_apply',
     description:
       'Apply parametric edits to models/<name>.step.py, regenerate STEP+GLB, return fresh facts/qa. '
-      + 'Same effect as clicking a face in the EasyCAD pane. Pass only keys you want to change.',
+      + 'Same effect as clicking a face in the EasyCAD pane. Pass only keys you want to change. '
+      + 'If params include runner fields (gate_width / runner_in / candidate), rebuilds the gating shot instead.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -521,6 +649,13 @@ export function apply(ctx) {
             width: { type: 'number', description: 'Overall Y size in mm' },
             height: { type: 'number', description: 'Overall Z size in mm' },
             hole_d: { type: 'number', description: 'Center hole diameter in mm' },
+            candidate: { type: 'string', description: 'Runner candidate id A/B/C when editing a gating system' },
+            gate_area: { type: 'number', description: 'Total gate area mm^2' },
+            gate_width: { type: 'number', description: 'Gate width mm' },
+            gate_thick: { type: 'number', description: 'Gate thickness mm' },
+            runner_in: { type: 'number', description: 'Runner inlet section mm^2; must be >= runner_out' },
+            runner_out: { type: 'number', description: 'Runner outlet section mm^2' },
+            biscuit_d: { type: 'number', description: 'Biscuit / shot-sleeve diameter mm' },
           },
         },
       },
@@ -535,10 +670,209 @@ export function apply(ctx) {
       open: { type: 'string' },
     }),
     timeoutMs: 180000,
-    async execute(args) {
-      const result = await workerJob({ cmd: 'apply', name: String(args.name), params: args.params })
+    async execute(args, exec) {
+      const result = await occt({ cmd: 'apply', name: String(args.name), params: args.params }, exec)
       result.open = viewerUrl(args.name)
       return result
+    },
+  })
+
+  ctx.tools.register({
+    name: 'easycad_import',
+    description:
+      'Import an existing STEP/STP into models/<name>.step + GLB + topology. '
+      + 'Use when the user already has a part file and wants runner/gating work on this session. '
+      + 'Does not rewrite source. Stay on the bound stem.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name', 'step'],
+      properties: {
+        name: nameSchema,
+        step: { type: 'string', description: 'Workspace path to a .step / .stp file' },
+      },
+    },
+    output: outputSchema(['ok', 'name', 'step'], {
+      name: { type: 'string' },
+      step: { type: 'string' },
+      glb: { type: 'string' },
+      facts: factsSchema,
+      imported: { type: 'boolean' },
+      open: { type: 'string' },
+    }),
+    timeoutMs: 180000,
+    async execute(args, exec) {
+      const result = await occt({ cmd: 'import', name: String(args.name), step: String(args.step) }, exec)
+      result.open = viewerUrl(args.name)
+      return result
+    },
+  })
+
+  const runnerBriefProps = {
+    name: nameSchema,
+    parting_dir: {
+      type: 'string',
+      enum: ['+X', '-X', '+Y', '-Y', '+Z', '-Z'],
+      description: 'Parting / ejection direction. Default +Z.',
+    },
+    keepout_face_ids: {
+      type: 'array',
+      items: { type: 'integer' },
+      description: 'Faces that must not receive a gate (cosmetic, seal, function).',
+    },
+    gate_face_ids: {
+      type: 'array',
+      items: { type: 'integer' },
+      description: 'Optional designer-picked gate faces. Candidate C honors these.',
+    },
+    gate_count: {
+      type: 'array',
+      items: { type: 'integer' },
+      description: 'Allowed gate count [min, max], e.g. [1, 2]. Use [1, 1] for a single gate.',
+    },
+    process: { type: 'string', description: 'Casting process. Default hpdc.' },
+    alloy: { type: 'string', description: 'Alloy label. Default AlSi12.' },
+    prefer: {
+      type: 'string',
+      enum: ['cost', 'fill_quality', 'intent'],
+      description: 'Default selected candidate: A=cost, B=fill, C=intent.',
+    },
+    intent: { type: 'string', description: 'One-line gating intent.' },
+  }
+
+  ctx.tools.register({
+    name: 'easycad_runner_brief',
+    description:
+      'Write models/<name>.runner.json for a die-cast gating (runner) job on an existing part. '
+      + 'The part must already exist (gen or import). Same session / same stem — do not open a new name. '
+      + 'Hard-gates keepout vs gate clash and missing part. After ok, call easycad_runner_review then propose.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: runnerBriefProps,
+    },
+    output: outputSchema(['ok', 'name', 'brief'], {
+      name: { type: 'string' },
+      brief: { type: 'object', additionalProperties: true },
+      path: { type: 'string' },
+      defects: { type: 'array' },
+      hint: { type: 'string' },
+    }),
+    timeoutMs: 30000,
+    async execute(args, exec) {
+      return occt({ cmd: 'runner-brief', name: String(args.name), payload: args }, exec, 30000)
+    },
+  })
+
+  ctx.tools.register({
+    name: 'easycad_runner_review',
+    description:
+      'Read-only check of the runner brief (parting, keepout, part present). '
+      + 'Call after easycad_runner_brief. If pass is false, only revise the brief — do not propose/build.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: { name: nameSchema },
+    },
+    output: outputSchema(['ok', 'name', 'pass'], {
+      name: { type: 'string' },
+      pass: { type: 'boolean' },
+      defects: { type: 'array' },
+      revisions: { type: 'array', items: { type: 'string' } },
+      hint: { type: 'string' },
+      brief: { type: 'object', additionalProperties: true },
+    }),
+    timeoutMs: 15000,
+    async execute(args, exec) {
+      return occt({ cmd: 'runner-review', name: String(args.name) }, exec, 15000)
+    },
+  })
+
+  ctx.tools.register({
+    name: 'easycad_runner_propose',
+    description:
+      'Rule-rank gate faces and section sizes. Returns up to 3 candidates: A fewer gates / shorter tree, '
+      + 'B one extra gate for fill, C honors designer gate_face_ids. Does not write Sweep source. '
+      + 'Then easycad_runner_build the selected id.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: { name: nameSchema },
+    },
+    output: outputSchema(['ok', 'name', 'candidates'], {
+      name: { type: 'string' },
+      selected: { type: 'string' },
+      candidates: { type: 'array', items: { type: 'object' } },
+      hint: { type: 'string' },
+      path: { type: 'string' },
+    }),
+    timeoutMs: 30000,
+    async execute(args, exec) {
+      return occt({ cmd: 'runner-propose', name: String(args.name) }, exec, 30000)
+    },
+  })
+
+  ctx.tools.register({
+    name: 'easycad_runner_build',
+    description:
+      'Instantiate the selected runner candidate with template solids (biscuit + runners + gates), '
+      + 'export models/<name>.shot.step/.glb and split-open cavity models/<name>.mold.step/.glb, return runner QA. '
+      + 'Not easycad_gen / not LLM Sweep. Preview 型腔 (two die halves, parting faces to camera) or 浇注系统.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: {
+        name: nameSchema,
+        candidate: { type: 'string', description: 'A, B, or C. Default is the brief-selected candidate.' },
+      },
+    },
+    output: outputSchema(['ok', 'name', 'qa'], {
+      name: { type: 'string' },
+      selected: { type: 'string' },
+      candidate: { type: 'object', additionalProperties: true },
+      step: { type: 'string' },
+      glb: { type: 'string' },
+      facts: factsSchema,
+      qa: qaSchema,
+      open: { type: 'string' },
+      hint: { type: 'string' },
+    }),
+    timeoutMs: 180000,
+    async execute(args, exec) {
+      const result = await occt({
+        cmd: 'runner-build',
+        name: String(args.name),
+        candidate: args.candidate ? String(args.candidate) : '',
+      }, exec)
+      result.open = `/easycad/view?name=${encodeURIComponent(args.name)}`
+      return result
+    },
+  })
+
+  ctx.tools.register({
+    name: 'easycad_runner_qa',
+    description:
+      'Re-read the last runner_build QA (keepout, gate count, section monotonic, watertight). '
+      + 'Skip immediately after easycad_runner_build — that call already returns qa.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: { name: nameSchema },
+    },
+    output: outputSchema(['ok', 'name', 'qa'], {
+      name: { type: 'string' },
+      pass: { type: 'boolean' },
+      selected: { type: 'string' },
+      qa: qaSchema,
+    }),
+    timeoutMs: 15000,
+    async execute(args, exec) {
+      return occt({ cmd: 'runner-qa', name: String(args.name) }, exec, 15000)
     },
   })
 
@@ -563,7 +897,7 @@ export function apply(ctx) {
     }),
     timeoutMs: 180000,
     async execute(args, exec) {
-      const result = await runCli(['preview', String(args.name)], exec?.signal)
+      const result = await occt({ cmd: 'preview', name: String(args.name) }, exec)
       result.open = viewerUrl(args.name)
       result.hint = 'CAD 分屏在同一 dsh 窗口右侧。点对话里的「分屏查看」或等生成完成后自动打开。'
       return result
@@ -593,12 +927,12 @@ export function apply(ctx) {
       images: { type: 'array', items: { type: 'string' } },
     }),
     timeoutMs: 180000,
-    async execute(args) {
-      return workerJob({
+    async execute(args, exec) {
+      return occt({
         cmd: 'snapshot',
         name: String(args.name),
         views: Array.isArray(args.views) ? args.views : [],
-      })
+      }, exec)
     },
   })
 
@@ -621,12 +955,12 @@ export function apply(ctx) {
       similarity: { type: 'object', additionalProperties: true },
     }),
     timeoutMs: 180000,
-    async execute(args) {
-      return workerJob({
+    async execute(args, exec) {
+      return occt({
         cmd: 'similarity',
         name: String(args.name),
         ref_image: args.ref_image ? String(args.ref_image) : '',
-      })
+      }, exec)
     },
   })
 

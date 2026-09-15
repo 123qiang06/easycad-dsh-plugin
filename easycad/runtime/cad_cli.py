@@ -2,6 +2,7 @@
 
 Commands:
   write-gen / gen / inspect / qa / export / brief / measure / preview / params / apply
+  runner-brief / runner-review / runner-propose / runner-build / runner-qa
 """
 
 from __future__ import annotations
@@ -17,6 +18,19 @@ from urllib.parse import quote
 
 from ir import brief_view, build_ir
 from params import extract_params, load_ir, update_ir, update_source, validate_parameterized_source
+from policy import (
+    consolidate_memory,
+    envelope_error,
+    fail_ids,
+    gate_gen,
+    last_events,
+    post_gen_progress,
+    record_and_consolidate,
+    review_ir,
+    source_hash,
+    stall_verdict,
+    validate_ir,
+)
 from vision import best_iou, cad_silhouettes, cad_view_image, foreground_mask, grade, reference_grid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -165,15 +179,6 @@ def _build_qa(facts: dict, expect_size: list[float] | None, tol: float) -> dict:
             }
         )
 
-    solid_count = int(facts.get("solid_count") or 0)
-    checks.append(
-        {
-            "id": "single_body",
-            "pass": solid_count == 1,
-            "solid_count": solid_count,
-        }
-    )
-
     valid = bool(facts.get("is_valid", True))
     volume = facts.get("volume_mm3")
     watertight = valid and (volume is None or float(volume) > 0)
@@ -274,6 +279,16 @@ def _publish_latest(result: dict) -> None:
     name = result.get("name")
     if not name:
         return
+    skip_publish = bool(result.pop("_skip_publish", False))
+    skip_memory = bool(result.get("_skip_memory")) or (
+        result.get("ok") is False and not result.get("facts")
+    )
+    if skip_publish:
+        if not skip_memory:
+            _write_memory(str(name), result, str(result.get("_memory_kind") or "gen"))
+        result.pop("_skip_memory", None)
+        result.pop("_memory_kind", None)
+        return
     stem = str(name)
     artifacts: dict[str, str] = {}
     for key, suffix in (
@@ -283,6 +298,11 @@ def _publish_latest(result: dict) -> None:
         ("stl", ".stl"),
         ("ir", ".ir.json"),
         ("brief", ".brief.json"),
+        ("runner", ".runner.json"),
+        ("shot_step", ".shot.step"),
+        ("shot_glb", ".shot.glb"),
+        ("mold_step", ".mold.step"),
+        ("mold_glb", ".mold.glb"),
     ):
         path = MODELS / f"{stem}{suffix}"
         if path.is_file():
@@ -304,10 +324,65 @@ def _publish_latest(result: dict) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    if not skip_memory:
+        _write_memory(stem, result, str(result.get("_memory_kind") or "gen"))
+    result.pop("_skip_memory", None)
+    result.pop("_memory_kind", None)
     result["dock"] = payload["view"]
 
 
-def cmd_write_gen(name: str, source: str, expect_size: list[float] | None, tol: float, ref_image: str | None = None) -> dict:
+def _write_memory(stem: str, result: dict, kind: str = "gen") -> None:
+    """Per-part card via event log + dual gates. Session isolation is the plugin map."""
+    source = ""
+    script = MODELS / f"{stem}.step.py"
+    if script.is_file():
+        try:
+            source = script.read_text(encoding="utf-8")
+        except OSError:
+            source = ""
+    expect = None
+    qa = result.get("qa") if isinstance(result.get("qa"), dict) else None
+    facts = result.get("facts") if isinstance(result.get("facts"), dict) else None
+    for check in (qa or {}).get("checks") or []:
+        if isinstance(check, dict) and check.get("id") == "overall_dimension":
+            expect = check.get("expected_mm")
+            break
+    gens = last_events(MODELS, stem, "gen", limit=8)
+    prev = next((g for g in reversed(gens) if g.get("kind") == "gen" or g.get("source") is not None), None)
+    progressed = post_gen_progress(prev, qa, facts, expect)
+    stall = stall_verdict(MODELS, stem, source, expect)
+    consecutive = 0 if progressed else int(stall.get("consecutive") or 0)
+    if kind == "apply":
+        consecutive = 0
+    record_and_consolidate(
+        MODELS,
+        stem,
+        kind,
+        {
+            "source": source if kind == "gen" else None,
+            "source_hash": source_hash(source) if source else None,
+            "qa": {"pass": bool((qa or {}).get("pass"))} if qa else None,
+            "qa_pass": bool((qa or {}).get("pass")) if qa else None,
+            "fail_ids": fail_ids(qa),
+            "facts": facts,
+            "expect_size": expect,
+            "envelope_error": envelope_error((facts or {}).get("size_mm") if facts else None, expect),
+            "progressed": progressed,
+            "consecutive_stalls": consecutive,
+            "params": result.get("params"),
+        },
+    )
+
+
+def cmd_write_gen(
+    name: str,
+    source: str,
+    expect_size: list[float] | None,
+    tol: float,
+    ref_image: str | None = None,
+    *,
+    skip_stall: bool = False,
+) -> dict:
     MODELS.mkdir(parents=True, exist_ok=True)
     script = _models_script(name)
     text = source.replace("\r\n", "\n")
@@ -318,8 +393,20 @@ def cmd_write_gen(name: str, source: str, expect_size: list[float] | None, tol: 
     ok, issues = validate_parameterized_source(text)
     if not ok:
         raise ValueError("源码未参数化，拒绝生成：\n- " + "\n- ".join(issues))
+    stem = _models_stem(name)
+    if not skip_stall:
+        gated = gate_gen(MODELS, stem, text, expect_size)
+        if not gated.get("ok"):
+            return gated
+        loop_meta = gated.get("loop") or {}
+    else:
+        loop_meta = {}
     script.write_text(text, encoding="utf-8")
-    return cmd_gen(script, expect_size=expect_size, tol=tol, ref_image=ref_image)
+    result = cmd_gen(script, expect_size=expect_size, tol=tol, ref_image=ref_image)
+    if loop_meta.get("level") == "guide":
+        result["loop"] = loop_meta
+        result["hint"] = loop_meta.get("hint")
+    return result
 
 
 def cmd_gen(script: Path, expect_size: list[float] | None = None, tol: float = 0.2, ref_image: str | None = None) -> dict:
@@ -375,11 +462,25 @@ def cmd_brief(name: str, payload: dict) -> dict:
     MODELS.mkdir(parents=True, exist_ok=True)
     stem = _models_stem(name)
     ir = build_ir(stem, payload)
+    defects = validate_ir(ir, MODELS)
+    if defects:
+        return {
+            "ok": False,
+            "name": stem,
+            "blocked": "ir_invalid",
+            "error": "IR 未过闸：" + "；".join(item["message"] for item in defects),
+            "defects": defects,
+            "hint": "修订尺寸/特征后再次 easycad_brief，不要 easycad_gen。",
+            "brief": {},
+            "path": "",
+            "_skip_memory": True,
+        }
     ir_path = MODELS / f"{stem}.ir.json"
     ir_path.write_text(json.dumps(ir, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     brief = brief_view(ir)
     brief_path = MODELS / f"{stem}.brief.json"
     brief_path.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    record_and_consolidate(MODELS, stem, "brief", {"intent": ir.get("intent"), "envelope": ir.get("envelope")})
     return {
         "ok": True,
         "name": stem,
@@ -387,7 +488,22 @@ def cmd_brief(name: str, payload: dict) -> dict:
         "ir": ir,
         "path": _rel(brief_path),
         "ir_path": _rel(ir_path),
+        "hint": "接着 easycad_review，通过后再 easycad_gen。",
+        "_skip_memory": True,
     }
+
+
+def cmd_review(stem_or_path: str, user_intent: str = "") -> dict:
+    stem = _models_stem(stem_or_path)
+    verdict = review_ir(MODELS, stem, user_intent)
+    record_and_consolidate(
+        MODELS,
+        stem,
+        "review",
+        {"pass": verdict.get("pass"), "defects": verdict.get("defects")},
+    )
+    verdict["_skip_memory"] = True
+    return verdict
 
 
 def cmd_measure(script: Path, checks: list[dict], tol: float) -> dict:
@@ -443,6 +559,10 @@ def cmd_params(stem_or_path: str) -> dict:
 
 def cmd_apply(stem_or_path: str, values: dict) -> dict:
     stem = _models_stem(stem_or_path)
+    from runner import apply_runner_params, is_runner_param_payload
+
+    if is_runner_param_payload(values):
+        return _export_runner_result(apply_runner_params(stem, values))
     script = _models_script(stem)
     ir_path = MODELS / f"{stem}.ir.json"
     ir = load_ir(ir_path)
@@ -466,27 +586,91 @@ def cmd_apply(stem_or_path: str, values: dict) -> dict:
     next_ir = update_ir(ir, stem, merged)
     ir_path.write_text(json.dumps(next_ir, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     expect = [merged["length"], merged["width"], merged["height"]]
-    result = cmd_write_gen(stem, script.read_text(encoding="utf-8"), expect, 0.2)
+    result = cmd_write_gen(stem, script.read_text(encoding="utf-8"), expect, 0.2, skip_stall=True)
     result["params"] = extract_params(next_ir, script.read_text(encoding="utf-8"))
+    result["_memory_kind"] = "apply"
     return result
+
+
+def _req_name(req: dict, default: str | None = None) -> str:
+    name = str(req.get("name") or default or "")
+    if not name:
+        raise ValueError("name required")
+    return name
+
+
+def worker_handle(req: dict) -> dict:
+    """Reloadable OCCT job dispatch. cmd_worker() looks this up after
+    importlib.reload so new commands pick up without killing the warm process."""
+    cmd = req.get("cmd")
+    expect = req.get("expect_size")
+    tol = float(req.get("tol", 0.2))
+    ref = req.get("ref_image") or None
+    if cmd == "gen":
+        source = req.get("source", "")
+        if not str(source).strip():
+            raise ValueError("empty source")
+        return cmd_write_gen(_req_name(req, "part"), source, expect, tol, ref)
+    if cmd == "apply":
+        return cmd_apply(_req_name(req), req.get("params") or {})
+    if cmd == "import":
+        name = _req_name(req)
+        step = str(req.get("step") or "")
+        if not step:
+            raise ValueError("import needs name and step")
+        return cmd_import_step(name, Path(step))
+    if cmd == "preview":
+        return cmd_preview(_req_name(req), ensure_glb=True)
+    if cmd == "similarity":
+        return cmd_similarity(_req_name(req), ref)
+    if cmd == "snapshot":
+        return cmd_snapshot(_req_name(req), req.get("views") or [])
+    if cmd == "advice":
+        return cmd_advice(_req_name(req))
+    if cmd == "review":
+        return cmd_review(_req_name(req), str(req.get("intent") or ""))
+    if cmd == "consolidate":
+        stem = _req_name(req)
+        return {"ok": True, "name": stem, "memory": consolidate_memory(MODELS, stem), "_skip_memory": True}
+    if cmd == "inspect":
+        return cmd_inspect(_models_script(_req_name(req)), expect, tol, ref)
+    if cmd == "qa":
+        return cmd_qa(_models_script(_req_name(req)), expect, tol, ref)
+    if cmd == "measure":
+        checks = req.get("checks") or []
+        return cmd_measure(_models_script(_req_name(req)), checks, tol)
+    if cmd == "export":
+        formats = req.get("formats") or ["stl"]
+        return cmd_export(_models_script(_req_name(req)), formats)
+    if cmd == "params":
+        return cmd_params(_req_name(req))
+    if cmd == "runner-brief":
+        return cmd_runner_brief(_req_name(req), req.get("payload") or req)
+    if cmd == "runner-review":
+        return cmd_runner_review(_req_name(req))
+    if cmd == "runner-propose":
+        return cmd_runner_propose(_req_name(req))
+    if cmd == "runner-build":
+        return cmd_runner_build(_req_name(req), req.get("candidate"))
+    if cmd == "runner-qa":
+        return cmd_runner_qa(_req_name(req))
+    if cmd == "runner-mold":
+        return cmd_runner_mold(_req_name(req))
+    raise ValueError(f"unknown worker cmd: {cmd!r}")
 
 
 def cmd_worker() -> int:
     """Persistent build123d worker: warm the heavy OCP import once, then serve
     one-shot gen/apply jobs over newline-delimited JSON on stdin/stdout. Makes
     successive CAD operations seconds instead of a ~14s cold import each time.
-    Each job re-reads this module (importlib.reload), so editing the command
-    logic needs no worker/dsh restart; build123d stays warm in sys.modules."""
+    Each job reloads this module and calls worker_handle, so command logic and
+    the dispatch table pick up without a dsh restart; build123d stays warm."""
     import build123d  # noqa: F401  (warm the import so later jobs reuse it)
     import importlib
     try:
         mod = importlib.import_module('cad_cli')  # this file as a reloadable module
     except Exception:
         mod = None
-
-    def fc(name: str, *args, **kwargs):
-        fn = getattr(mod, name) if mod is not None else globals()[name]
-        return fn(*args, **kwargs)
 
     for line in sys.stdin:
         line = line.strip()
@@ -504,58 +688,119 @@ def cmd_worker() -> int:
         try:
             if mod is not None:
                 importlib.reload(mod)  # pick up edits to cad_cli.py before dispatch
-            if cmd == "gen":
-                source = req.get("source", "")
-                name = str(req.get("name", "part"))
-                expect = req.get("expect_size")
-                tol = float(req.get("tol", 0.2))
-                if not source.strip():
-                    raise ValueError("empty source")
-                result = fc("cmd_write_gen", name, source, expect, tol)
-            elif cmd == "apply":
-                name = str(req.get("name", ""))
-                params = req.get("params") or {}
-                if not name:
-                    raise ValueError("apply needs a name")
-                result = fc("cmd_apply", name, params)
-            elif cmd == "import":
-                name = str(req.get("name", ""))
-                step = str(req.get("step", ""))
-                if not name or not step:
-                    raise ValueError("import needs name and step")
-                result = fc("cmd_import_step", name, Path(step))
-            elif cmd == "preview":
-                name = str(req.get("name", ""))
-                if not name:
-                    raise ValueError("preview needs a name")
-                result = fc("cmd_preview", name, ensure_glb=True)
-            elif cmd == "similarity":
-                name = str(req.get("name", ""))
-                ref = str(req.get("ref_image") or "")
-                if not name:
-                    raise ValueError("similarity needs a name")
-                result = fc("cmd_similarity", name, ref or None)
-            elif cmd == "snapshot":
-                name = str(req.get("name", ""))
-                views = req.get("views") or []
-                if not name:
-                    raise ValueError("snapshot needs a name")
-                result = fc("cmd_snapshot", name, views)
-            elif cmd == "advice":
-                name = str(req.get("name", ""))
-                if not name:
-                    raise ValueError("advice needs a name")
-                result = fc("cmd_advice", name)
-            else:
-                raise ValueError(f"unknown worker cmd: {cmd!r}")
+            handle = getattr(mod, "worker_handle", None) if mod is not None else worker_handle
+            if handle is None:
+                handle = worker_handle
+            result = handle(req)
             if result.get("name"):
-                fc("_publish_latest", result)
+                pub = getattr(mod, "_publish_latest", _publish_latest) if mod is not None else _publish_latest
+                pub(result)
             print(json.dumps(result, ensure_ascii=False))
             sys.stdout.flush()
         except Exception as exc:
             print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
             sys.stdout.flush()
     return 0
+
+
+def _export_runner_result(prepared: dict) -> dict:
+    if not prepared.get("ok"):
+        return prepared
+    from build123d import export_step
+
+    stem = prepared["name"]
+    shot = prepared.pop("shot", None)
+    mold = prepared.pop("mold", None)
+    prepared.pop("runner", None)
+    shot_step = MODELS / f"{stem}.shot.step"
+    shot_glb = MODELS / f"{stem}.shot.glb"
+    glb_err = None
+    if shot is not None:
+        try:
+            export_step(shot, str(shot_step))
+        except Exception as exc:
+            if not shot_step.is_file():
+                return {**prepared, "ok": False, "error": f"shot STEP 写出失败: {exc}"}
+        try:
+            _export_glb(shot, shot_glb)
+            _write_topology_sidecar(shot, f"{stem}.shot")
+        except Exception as exc:
+            glb_err = str(exc)
+    mold_err = None
+    if mold is not None:
+        mold_step = MODELS / f"{stem}.mold.step"
+        mold_glb = MODELS / f"{stem}.mold.glb"
+        try:
+            export_step(mold, str(mold_step))
+            _export_glb(mold, mold_glb)
+            _write_topology_sidecar(mold, f"{stem}.mold")
+            prepared["mold_step"] = _rel(mold_step)
+            prepared["mold_glb"] = _rel(mold_glb)
+        except Exception as exc:
+            mold_err = str(exc)
+            if not prepared.get("mold_glb"):
+                return {**prepared, "ok": False, "error": f"型腔预览写出失败: {exc}", "mold_error": mold_err}
+    if shot is None and mold is None:
+        return prepared
+    prepared["step"] = _rel(shot_step) if shot_step.is_file() else None
+    prepared["glb"] = _rel(shot_glb) if shot_glb.is_file() and glb_err is None else None
+    prepared["glb_error"] = glb_err
+    prepared["mold_error"] = mold_err
+    prepared["open"] = f"/easycad/view?name={stem}&work=runner"
+    prepared["_memory_kind"] = "runner_build"
+    return prepared
+
+
+def cmd_runner_brief(stem: str, payload: dict) -> dict:
+    from runner import cmd_runner_brief as impl
+
+    result = impl(stem, payload if isinstance(payload, dict) else {})
+    result["_skip_publish"] = True
+    result["_skip_memory"] = True
+    return result
+
+
+def cmd_runner_review(stem: str) -> dict:
+    from runner import review_runner
+
+    result = review_runner(stem)
+    result["_skip_publish"] = True
+    result["_skip_memory"] = True
+    return result
+
+
+def cmd_runner_propose(stem: str) -> dict:
+    from runner import cmd_runner_propose as impl
+
+    result = impl(stem)
+    result["_skip_memory"] = True
+    return result
+
+
+def _reload_runner():
+    import importlib
+    import runner
+
+    return importlib.reload(runner)
+
+
+def cmd_runner_build(stem: str, candidate: str | None = None) -> dict:
+    runner = _reload_runner()
+    return _export_runner_result(runner.prepare_runner_build(stem, candidate))
+
+
+def cmd_runner_mold(stem: str) -> dict:
+    runner = _reload_runner()
+    return _export_runner_result(runner.prepare_runner_mold(stem))
+
+
+def cmd_runner_qa(stem: str) -> dict:
+    from runner import cmd_runner_qa as impl
+
+    result = impl(stem)
+    result["_skip_publish"] = True
+    result["_skip_memory"] = True
+    return result
 
 
 def cmd_import_step(stem: str, step_path: Path) -> dict:
@@ -800,12 +1045,48 @@ def _similarity_sidecars(stem: str, shape, ref_image: str | None = None, write_v
     return sim
 
 
-def _advice_for(stem: str, *, persist: bool = True) -> dict:
-    """Rule-based AI advice from QA + similarity + IR (text prompt intent)."""
+_GRADE_EN = {
+    "很高": "very high",
+    "较高": "high",
+    "中等": "medium",
+    "较低": "low",
+    "很低": "very low",
+}
+
+
+def _ui_locale() -> str:
+    raw = _load_sidecar(MODELS / ".easycad-locale.json")
+    return "en" if str(raw.get("locale") or "") == "en" else "zh"
+
+
+def _advice_item(
+    item_id: str,
+    lang: str,
+    *,
+    title_zh: str,
+    title_en: str,
+    text_zh: str,
+    text_en: str,
+    prompt_zh: str,
+    prompt_en: str,
+    severity: str = "warn",
+) -> dict:
+    return {
+        "id": item_id,
+        "severity": severity,
+        "executable": True,
+        "title": title_en if lang == "en" else title_zh,
+        "text": text_en if lang == "en" else text_zh,
+        "prompt": prompt_en if lang == "en" else prompt_zh,
+    }
+
+
+def _advice_for(stem: str, *, persist: bool = True, locale: str | None = None) -> dict:
+    """Executable findings from QA + similarity + missing params. No informational dumps."""
+    lang = "en" if (locale or _ui_locale()) == "en" else "zh"
     qa = _load_sidecar(MODELS / f"{stem}.qa.json")
     sim = _load_sidecar(MODELS / f"{stem}.similarity.json")
     ir = _load_sidecar(MODELS / f"{stem}.ir.json")
-    intent = str(ir.get("intent") or "")
     features = [
         str(item.get("text") or item.get("id") or "")
         for item in (ir.get("features") or [])
@@ -815,59 +1096,128 @@ def _advice_for(stem: str, *, persist: bool = True) -> dict:
     src = script.read_text(encoding="utf-8") if script.is_file() else ""
     extracted = extract_params(ir, src) if script.is_file() else {}
     vals = extracted.get("values") or {}
+    axis_key = {"X": "length", "Y": "width", "Z": "height"}
 
-    suggestions: list[str] = []
+    items: list[dict] = []
     checks = qa.get("checks") if isinstance(qa.get("checks"), list) else []
-    failed = [c for c in checks if c.get("pass") is False]
+    failed = [c for c in checks if c.get("pass") is False and c.get("id") != "single_body"]
     for c in checks:
         cid = c.get("id")
         if c.get("pass") is False:
             if cid == "overall_dimension":
                 for m in c.get("mismatches") or []:
-                    suggestions.append(
-                        f"{m.get('axis')} 轴尺寸 {m.get('got_mm')} mm 与期望 {m.get('expected_mm')} mm 相差 "
-                        f"{m.get('delta_mm')} mm：调整 PARAMS 中的对应外形键。"
-                    )
-            elif cid == "single_body":
-                suggestions.append(f"模型由 {c.get('solid_count')} 个实体组成（应为一个）：合并为单一 BuildPart 或做布尔并集。")
+                    axis = str(m.get("axis") or "").upper()
+                    key = axis_key.get(axis, "length")
+                    got = m.get("got_mm")
+                    expect = m.get("expected_mm")
+                    delta = m.get("delta_mm")
+                    items.append(_advice_item(
+                        f"overall_{axis or key}",
+                        lang,
+                        severity="error",
+                        title_zh=f"把 {axis or key} 向外形改到 {expect} mm",
+                        title_en=f"Set {axis or key} envelope to {expect} mm",
+                        text_zh=f"{axis} 轴现在 {got} mm，期望 {expect} mm，相差 {delta} mm。",
+                        text_en=f"{axis}-axis is {got} mm, expected {expect} mm (delta {delta} mm).",
+                        prompt_zh=(
+                            f"零件 {stem}：{axis} 向外形 {got} mm，IR 期望 {expect} mm。"
+                            f"请立刻 easycad_apply，把 PARAMS 的 {key} 设为 {expect}。"
+                            f"不要换零件名，不要改无关特征。"
+                        ),
+                        prompt_en=(
+                            f"Part {stem}: {axis}-axis is {got} mm, IR expects {expect} mm. "
+                            f"Call easycad_apply now and set PARAMS {key} to {expect}. "
+                            f"Do not change the part name or unrelated features."
+                        ),
+                    ))
             elif cid == "watertight":
-                suggestions.append("模型非水密/体积异常：检查是否有开面、自交或空实体。")
-    if not failed:
-        suggestions.append("几何校验全部通过：外形尺寸、单实体、水密均已达标。")
-
-    if sim.get("present"):
-        score = float(sim.get("score") or 0)
-        view = sim.get("best_view")
-        if score >= 0.80:
-            suggestions.append(f"外形与参考图贴合度很高（{score:.2f}），可进入导出/打印。")
-        elif score >= 0.50:
-            suggestions.append(f"外形与参考图贴合度{sim.get('grade', '中等')}（{score:.2f}，最佳 {view} 视图）：建议对照 {view} 视图微调轮廓。")
-        else:
-            suggestions.append(f"外形与参考图贴合度偏低（{score:.2f}）：重点比对 {view} 视图的轮廓形状、孔位与倒角。")
-        if str(sim.get("note", "")).startswith("fragmented"):
-            suggestions.append("参考图是工程图/多视图，轮廓被碎片化，相似度仅供参考；建议改用单一视图或零件照片作为参考。")
-    else:
-        suggestions.append("未提供参考图，跳过相似度检测；如提供可存到 models/<名字>.ref.png 再比对。")
-
-    if intent:
-        suggestions.append(f"设计意图：{intent}。")
-    if features:
-        suggestions.append("需求特征：" + "；".join(features) + "。")
+                items.append(_advice_item(
+                    "watertight",
+                    lang,
+                    severity="error",
+                    title_zh="修复水密/开面",
+                    title_en="Fix watertight / open faces",
+                    text_zh="QA watertight 未过：可能有开面、自交或空实体。",
+                    text_en="QA watertight failed: open faces, self-intersections, or empty solids.",
+                    prompt_zh=(
+                        f"零件 {stem} 的 QA watertight 未过。"
+                        f"请检查 gen_step 的开面/自交/空实体，修好后 easycad_gen 同一 name。"
+                        f"不要换零件名。"
+                    ),
+                    prompt_en=(
+                        f"Part {stem} failed QA watertight. Fix open faces, self-intersections, or empty solids "
+                        f"in gen_step, then easycad_gen the same name. Do not change the stem."
+                    ),
+                ))
 
     hole_needed = any(("hole" in f.lower() or "孔" in f or "孔径" in f) for f in features)
     if hole_needed and not vals.get("hole_d"):
-        suggestions.append("需求提到孔/孔径，但参数没有 hole_d：加一个中央通孔或补上孔径。")
-    if vals.get("length") and vals.get("width") and vals.get("height"):
-        suggestions.append(
-            "当前可用参数：length / width / height"
-            + ("" if vals.get("hole_d") else "（缺 hole_d）")
-            + "；在分屏参数行可直接修改。"
-        )
+        items.append(_advice_item(
+            "hole_d",
+            lang,
+            severity="warn",
+            title_zh="补上孔径参数并打孔",
+            title_en="Add hole_d and cut a hole",
+            text_zh="需求提到孔，但 PARAMS 没有 hole_d。",
+            text_en="The spec mentions a hole, but PARAMS has no hole_d.",
+            prompt_zh=(
+                f"零件 {stem} 需求有孔，但 PARAMS 没有 hole_d。"
+                f"请在 PARAMS 增加 hole_d，gen_step 用 Hole(PARAMS['hole_d']/2) 打通孔，"
+                f"然后 easycad_gen 同一 name。"
+            ),
+            prompt_en=(
+                f"Part {stem} needs a hole, but PARAMS has no hole_d. "
+                f"Add hole_d to PARAMS, cut Hole(PARAMS['hole_d']/2) in gen_step, "
+                f"then easycad_gen the same name."
+            ),
+        ))
+
+    if sim.get("present"):
+        score = float(sim.get("score") or 0)
+        view = sim.get("best_view") or "iso"
+        if score < 0.80:
+            items.append(_advice_item(
+                "similarity",
+                lang,
+                severity="warn" if score >= 0.50 else "error",
+                title_zh=f"按 {view} 视图贴合参考图",
+                title_en=f"Match the reference on the {view} view",
+                text_zh=f"与参考图贴合度 {score:.2f}，最佳 {view} 视图。",
+                text_en=f"Silhouette IoU {score:.2f}, best view {view}.",
+                prompt_zh=(
+                    f"零件 {stem} 与参考图贴合度 {score:.2f}（最佳 {view}）。"
+                    f"请对照 {view} 视图改轮廓、孔位或倒角，easycad_gen 同一 name，"
+                    f"不要换零件。改完可再看相似度。"
+                ),
+                prompt_en=(
+                    f"Part {stem} silhouette IoU is {score:.2f} (best {view}). "
+                    f"Adjust outline, holes, or fillets against the {view} view, "
+                    f"easycad_gen the same name, do not switch parts."
+                ),
+            ))
+
+    if not failed and sim.get("pass") is not False:
+        items.append(_advice_item(
+            "export_stl",
+            lang,
+            severity="ok",
+            title_zh="导出 STL",
+            title_en="Export STL",
+            text_zh="几何校验已通过，可导出打印网格。",
+            text_en="Geometry checks passed. Export a print mesh.",
+            prompt_zh=f"零件 {stem} 几何已通过。请 easycad_export 导出 STL，不要改几何，不要换零件名。",
+            prompt_en=f"Part {stem} passed geometry checks. Call easycad_export for STL. Do not change geometry or the part name.",
+        ))
 
     advice = {
         "name": stem,
+        "locale": lang,
         "mode": "rule-based",
-        "suggestions": suggestions,
+        "items": items,
+        "suggestions": [
+            f"{it['title']}：{it['text']}" if lang == "zh" else f"{it['title']}: {it['text']}"
+            for it in items
+        ],
         "summary": (
             "GEOMETRY OK" if not failed and sim.get("pass") is not False else "NEEDS WORK"
         ),
@@ -877,7 +1227,6 @@ def _advice_for(stem: str, *, persist: bool = True) -> dict:
             json.dumps(advice, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
     return advice
-
 
 def cmd_snapshot(stem_or_path: str, views: list[str] | None = None) -> dict:
     stem = _models_stem(stem_or_path)
@@ -938,6 +1287,16 @@ def cmd_preview(stem_or_path: str, ensure_glb: bool = True) -> dict:
         for key, path in files.items()
         if path is not None and path.is_file()
     }
+    for key, suffix in (
+        ("shot_step", ".shot.step"),
+        ("shot_glb", ".shot.glb"),
+        ("mold_step", ".mold.step"),
+        ("mold_glb", ".mold.glb"),
+        ("runner", ".runner.json"),
+    ):
+        extra = MODELS / f"{stem}{suffix}"
+        if extra.is_file():
+            artifacts[key] = _rel(extra)
     if not artifacts:
         raise FileNotFoundError(f"no artifacts for {stem} under models/")
     open_path = files["step"] if files["step"].is_file() else next(
@@ -1035,6 +1394,34 @@ def main(argv: list[str] | None = None) -> int:
     p_adv = sub.add_parser("advice")
     p_adv.add_argument("script")
 
+    p_rev = sub.add_parser("review")
+    p_rev.add_argument("script")
+    p_rev.add_argument("--intent", default="")
+
+    p_cons = sub.add_parser("consolidate")
+    p_cons.add_argument("script")
+
+    p_rbrief = sub.add_parser("runner-brief")
+    p_rbrief.add_argument("--name", required=True)
+    p_rbrief.add_argument("--json", default="")
+    p_rbrief.add_argument("--json-stdin", action="store_true")
+
+    p_rrev = sub.add_parser("runner-review")
+    p_rrev.add_argument("script")
+
+    p_rprop = sub.add_parser("runner-propose")
+    p_rprop.add_argument("script")
+
+    p_rbuild = sub.add_parser("runner-build")
+    p_rbuild.add_argument("script")
+    p_rbuild.add_argument("--candidate", default="")
+
+    p_rqa = sub.add_parser("runner-qa")
+    p_rqa.add_argument("script")
+
+    p_rmold = sub.add_parser("runner-mold")
+    p_rmold.add_argument("script")
+
     args = parser.parse_args(argv)
     if args.cmd == "worker":
         return cmd_worker()
@@ -1082,12 +1469,32 @@ def main(argv: list[str] | None = None) -> int:
             result = cmd_similarity(args.script, args.ref or None)
         elif args.cmd == "advice":
             result = cmd_advice(args.script)
+        elif args.cmd == "review":
+            result = cmd_review(args.script, args.intent or "")
+        elif args.cmd == "consolidate":
+            stem = _models_stem(args.script)
+            result = {"ok": True, "name": stem, "memory": consolidate_memory(MODELS, stem), "_skip_memory": True}
+        elif args.cmd == "runner-brief":
+            payload = _read_json_arg(args.json, args.json_stdin) if (args.json or args.json_stdin) else {}
+            if payload and not isinstance(payload, dict):
+                raise ValueError("runner-brief JSON must be an object")
+            result = cmd_runner_brief(args.name, payload or {})
+        elif args.cmd == "runner-review":
+            result = cmd_runner_review(_models_stem(args.script))
+        elif args.cmd == "runner-propose":
+            result = cmd_runner_propose(_models_stem(args.script))
+        elif args.cmd == "runner-build":
+            result = cmd_runner_build(_models_stem(args.script), args.candidate or None)
+        elif args.cmd == "runner-qa":
+            result = cmd_runner_qa(_models_stem(args.script))
+        elif args.cmd == "runner-mold":
+            result = cmd_runner_mold(_models_stem(args.script))
         else:
             result = cmd_preview(args.script)
     except Exception as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
-    if result.get("name") and args.cmd not in {"params"}:
+    if result.get("name") and args.cmd not in {"params", "review", "consolidate", "runner-review", "runner-qa"}:
         _publish_latest(result)
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result.get("ok") else 2

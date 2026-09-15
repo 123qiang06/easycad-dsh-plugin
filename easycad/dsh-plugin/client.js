@@ -6,10 +6,13 @@ window.__ModuleLoader__.load({
     const e = React.createElement
 
     const TOOLS = [
-      'easycad_brief', 'easycad_gen', 'easycad_inspect', 'easycad_qa',
+      'easycad_brief', 'easycad_review', 'easycad_gen', 'easycad_inspect', 'easycad_qa',
       'easycad_measure', 'easycad_export', 'easycad_preview',
-      'easycad_params', 'easycad_apply',
+      'easycad_params', 'easycad_apply', 'easycad_memory',
       'easycad_snapshot', 'easycad_similarity', 'easycad_advice',
+      'easycad_import',
+      'easycad_runner_brief', 'easycad_runner_review', 'easycad_runner_propose',
+      'easycad_runner_build', 'easycad_runner_qa',
     ]
 
     // ---- persisted layout state ----
@@ -23,6 +26,116 @@ window.__ModuleLoader__.load({
     const MIN_TREE = 130
     const MAX_TREE = 360
     const TREE_RAIL = 40
+    const LOCALE_KEY = 'easycad:locale'
+    const LOCALE_EVENT = 'easycad:locale'
+
+    const COPY = {
+      zh: {
+        openPane: '打开 EasyCAD 分屏',
+        openPart: '打开 EasyCAD：{name}',
+        qaPass: 'QA 通过',
+        qaFail: 'QA 未过',
+        openSplit: '分屏查看',
+        emptyTree: '工作区没有可预览的 STEP/GLB。',
+        confirmDelete: '确定删除文件「{name}」吗？此操作不可撤销。',
+        deleteFailed: '删除失败',
+        deleteFailedDetail: '删除失败：{error}',
+        resizePane: '拖动调整分屏宽度',
+        memory: '记忆',
+        memoryTitle: '此对话已绑定该零件，换文件会换对话',
+        refresh: '刷新',
+        collapse: '收起',
+        models: '3D 模型',
+        collapseTree: '收起文件树',
+        expandTree: '展开文件树',
+        resizeTree: '拖动调整文件树宽度',
+        download: '下载',
+        delete: '删除',
+        langTitle: '切换为 English',
+        iframeTitle: 'EasyCAD 3D',
+        runAdviceFail: '无法发送到当前对话',
+      },
+      en: {
+        openPane: 'Open EasyCAD pane',
+        openPart: 'Open EasyCAD: {name}',
+        qaPass: 'QA passed',
+        qaFail: 'QA failed',
+        openSplit: 'Open pane',
+        emptyTree: 'No previewable STEP/GLB in this workspace.',
+        confirmDelete: 'Delete “{name}”? This cannot be undone.',
+        deleteFailed: 'Delete failed',
+        deleteFailedDetail: 'Delete failed: {error}',
+        resizePane: 'Drag to resize the pane',
+        memory: 'Memory',
+        memoryTitle: 'This chat is bound to the part. Opening another file switches the chat.',
+        refresh: 'Refresh',
+        collapse: 'Hide',
+        models: '3D Models',
+        collapseTree: 'Collapse file tree',
+        expandTree: 'Expand file tree',
+        resizeTree: 'Drag to resize the file tree',
+        download: 'Download',
+        delete: 'Delete',
+        langTitle: 'Switch to 中文',
+        iframeTitle: 'EasyCAD 3D',
+        runAdviceFail: 'Could not send to the current chat',
+      },
+    }
+
+    function readLocale() {
+      try {
+        return localStorage.getItem(LOCALE_KEY) === 'en' ? 'en' : 'zh'
+      } catch {
+        return 'zh'
+      }
+    }
+
+    function writeLocale(locale, partName) {
+      const next = locale === 'en' ? 'en' : 'zh'
+      try { localStorage.setItem(LOCALE_KEY, next) } catch {}
+      window.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: next }))
+      const notifyFrame = () => {
+        const frame = document.querySelector('.ec-frame')
+        try {
+          if (frame && frame.contentWindow) {
+            frame.contentWindow.postMessage({ type: 'easycad:locale', locale: next }, '*')
+          }
+        } catch {}
+      }
+      const stem = String(partName || '').split(/[/\\]/).pop()
+      fetch('/easycad/locale', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ locale: next, name: stem || '' }),
+      }).then(notifyFrame).catch(notifyFrame)
+    }
+
+    function t(locale, key, vars) {
+      let text = (COPY[locale] && COPY[locale][key]) || COPY.zh[key] || key
+      if (vars) {
+        Object.keys(vars).forEach((name) => {
+          text = text.split('{' + name + '}').join(String(vars[name]))
+        })
+      }
+      return text
+    }
+
+    function useLocale() {
+      const [locale, setLocale] = React.useState(readLocale)
+      React.useEffect(() => {
+        const onCustom = (event) => setLocale(event.detail === 'en' ? 'en' : 'zh')
+        const onStorage = (event) => {
+          if (event.key === LOCALE_KEY) setLocale(event.newValue === 'en' ? 'en' : 'zh')
+        }
+        window.addEventListener(LOCALE_EVENT, onCustom)
+        window.addEventListener('storage', onStorage)
+        return () => {
+          window.removeEventListener(LOCALE_EVENT, onCustom)
+          window.removeEventListener('storage', onStorage)
+        }
+      }, [])
+      return locale
+    }
 
     function readNumber(key, fallback, min, max) {
       const value = Number(localStorage.getItem(key))
@@ -41,7 +154,11 @@ window.__ModuleLoader__.load({
     }
 
     function applyPaneWidth(width) {
-      document.documentElement.style.setProperty('--easycad-w', `${width}px`)
+      const sidebarSafe = 300
+      const room = typeof window !== 'undefined' ? Math.max(MIN_PANE, window.innerWidth - sidebarSafe) : width
+      const next = Math.min(MAX_PANE, Math.max(MIN_PANE, Math.min(width, room)))
+      document.documentElement.style.setProperty('--easycad-w', `${next}px`)
+      return next
     }
 
     function getAppFrame() {
@@ -60,7 +177,7 @@ window.__ModuleLoader__.load({
     const css = [
       ':root{--easycad-w:900px}',
       '.easycad-frame-open>div:nth-child(2),.easycad-frame-open>div:nth-child(3){padding-right:var(--easycad-w);transition:padding-right .12s ease;box-sizing:border-box}',
-      '.ec-overlay{position:absolute;top:0;right:0;bottom:0;width:var(--easycad-w);display:flex;flex-direction:column;background:#fff;border-left:1px solid #e6e8eb;pointer-events:auto;box-shadow:-10px 0 24px rgb(16 24 40 / 8%)}',
+      '.ec-overlay{position:absolute;top:0;right:0;bottom:0;width:min(var(--easycad-w), calc(100% - 300px));max-width:calc(100vw - 300px);display:flex;flex-direction:column;background:#fff;border-left:1px solid #e6e8eb;pointer-events:auto;box-shadow:-10px 0 24px rgb(16 24 40 / 8%)}',
       '.ec-overlay[hidden]{display:none}',
       '.ec-resize{position:absolute;left:-3px;top:0;bottom:0;width:6px;cursor:col-resize;touch-action:none;z-index:2}',
       '.ec-resize::after{content:"";position:absolute;left:2px;top:0;bottom:0;width:2px;background:transparent;transition:background .12s ease}',
@@ -68,8 +185,13 @@ window.__ModuleLoader__.load({
       '.ec-head{display:flex;align-items:center;gap:8px;min-height:38px;padding:0 10px;border-bottom:1px solid #e6e8eb;background:#fff;flex-shrink:0;font:13px/1.4 ui-sans-serif,system-ui,sans-serif;color:#1a1d21}',
       '.ec-head strong{font-size:13px}',
       '.ec-head .ec-part{color:#5c6570;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.ec-head .ec-mem{flex-shrink:0;border-radius:999px;padding:1px 8px;font-size:11px;background:#edf4ff;color:#1f6feb}',
       '.ec-head button{border:1px solid #d5d9de;background:#fff;border-radius:6px;padding:3px 8px;cursor:pointer;font:12px/1.3 ui-sans-serif,system-ui,sans-serif;color:#1a1d21}',
       '.ec-head button:hover{background:#f4f6f8}',
+      '.ec-head button.ec-lang{display:inline-flex;align-items:stretch;padding:0;overflow:hidden;gap:0}',
+      '.ec-head button.ec-lang:hover{background:#fff}',
+      '.ec-head button.ec-lang span{padding:3px 7px}',
+      '.ec-head button.ec-lang span[data-on="true"]{background:#edf4ff;color:#1f6feb}',
       '.ec-hint{padding:6px 12px;font:12px/1.5 ui-sans-serif,system-ui,sans-serif;color:#b45309;background:#fef3c7;border-bottom:1px solid #f3e3b0;flex-shrink:0}',
       '.ec-cols{display:flex;flex:1;min-height:0}',
       '.ec-tree{display:flex;flex-direction:column;flex-shrink:0;background:#fff;overflow:hidden}',
@@ -140,9 +262,132 @@ window.__ModuleLoader__.load({
       try { return JSON.parse(raw) } catch { return {} }
     }
 
+    async function promptCurrentSession(text) {
+      if (!text || !sessionsApi) return false
+      const sid = currentSessionId()
+      if (!sid) return false
+      try {
+        const face = sessionsApi.binding(sid) && sessionsApi.binding(sid).session
+        if (!face || typeof face.prompt !== 'function') return false
+        const result = await face.prompt([{ type: 'text', text: String(text) }], 'queue')
+        if (result && result.ok === false) return false
+        return true
+      } catch {
+        return false
+      }
+    }
+
     function openPart(name) {
       if (!name) return
       window.dispatchEvent(new CustomEvent('easycad:open', { detail: { name } }))
+    }
+
+    let sessionsApi = null
+    let workspacesApi = null
+
+    function currentSessionId() {
+      try {
+        return sessionsApi && sessionsApi.list ? sessionsApi.list.getSnapshot().current : null
+      } catch {
+        return null
+      }
+    }
+
+    function sessionSummary(id) {
+      if (!id || !sessionsApi) return null
+      try {
+        return sessionsApi.list.getSnapshot().byId[id] || null
+      } catch {
+        return null
+      }
+    }
+
+    async function fetchSessionMap() {
+      const body = await fetchJson('/easycad/sessions')
+      return {
+        byName: (body && body.byName) || {},
+        bySession: (body && body.bySession) || {},
+      }
+    }
+
+    async function bindNameToSession(name, sessionId) {
+      if (!name || !sessionId) return
+      await fetch('/easycad/sessions/bind', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, sessionId }),
+      })
+    }
+
+    async function pruneDeadSessions() {
+      if (!sessionsApi) return
+      const map = await fetchSessionMap()
+      const deadIds = Object.keys(map.bySession).filter((sid) => !sessionSummary(sid))
+      if (!deadIds.length) return
+      await fetch('/easycad/sessions/prune', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deadIds }),
+      })
+    }
+
+    let sessionLock = Promise.resolve()
+    function withSessionLock(fn) {
+      const next = sessionLock.then(fn, fn)
+      sessionLock = next.then(() => {}, () => {})
+      return next
+    }
+
+    async function renameSession(sessionId, title) {
+      if (!sessionsApi || !sessionId || !title) return
+      try {
+        const face = sessionsApi.binding(sessionId) && sessionsApi.binding(sessionId).session
+        if (face && typeof face.rename === 'function') await face.rename(String(title))
+      } catch {}
+    }
+
+    async function createBoundSessionUnlocked(name) {
+      const wsSnap = workspacesApi && workspacesApi.list ? workspacesApi.list.getSnapshot() : { items: [], recentWorkspaceId: undefined }
+      const current = currentSessionId()
+      let workspaceId = wsSnap.recentWorkspaceId
+      if (current && Array.isArray(wsSnap.items)) {
+        const hit = wsSnap.items.find((item) => Array.isArray(item.sessionIds) && item.sessionIds.includes(current))
+        if (hit) workspaceId = hit.workspaceId
+      }
+      const sessionId = await sessionsApi.create(workspaceId ? { workspaceId } : {})
+      await bindNameToSession(name, sessionId)
+      sessionsApi.open(sessionId)
+      await renameSession(sessionId, name)
+      return sessionId
+    }
+
+    async function ensureSessionForUnlocked(name) {
+      if (!name || !sessionsApi) return null
+      const map = await fetchSessionMap()
+      const boundId = map.byName[name] && map.byName[name].sessionId
+      if (boundId && sessionSummary(boundId)) {
+        if (currentSessionId() !== boundId) sessionsApi.open(boundId)
+        return boundId
+      }
+      const current = currentSessionId()
+      const currentBound = current && map.bySession[current]
+      const summary = current && sessionSummary(current)
+      if (current && summary && !currentBound && summary.blank) {
+        await bindNameToSession(name, current)
+        await renameSession(current, name)
+        return current
+      }
+      return createBoundSessionUnlocked(name)
+    }
+
+    function ensureSessionFor(name) {
+      return withSessionLock(() => ensureSessionForUnlocked(name))
+    }
+
+    async function openPartInSession(name) {
+      if (!name) return
+      try { await ensureSessionFor(name) } catch {}
+      openPart(name)
     }
 
     async function fetchJson(url) {
@@ -285,18 +530,19 @@ window.__ModuleLoader__.load({
     }
 
     function CadOpenButton({ wide, compact }) {
+      const locale = useLocale()
       const latest = useLatestPartName()
       const [busy, setBusy] = React.useState(false)
       const onClick = async () => {
         setBusy(true)
         try {
           const name = await resolvePartName()
-          if (name) openPart(name)
+          if (name) openPartInSession(name)
         } finally {
           setBusy(false)
         }
       }
-      const title = latest ? (`打开 EasyCAD：${latest}`) : '打开 EasyCAD 分屏'
+      const title = latest ? t(locale, 'openPart', { name: latest }) : t(locale, 'openPane')
       const className = compact ? 'ec-head-btn' : 'ec-foot-btn'
       return e('button', {
         type: 'button',
@@ -312,22 +558,42 @@ window.__ModuleLoader__.load({
       return e(CadOpenButton, { compact: true })
     }
 
-    function CadRow({ block, toolName }) {
+    function CadRow({ block, toolName, sessionId }) {
+      const locale = useLocale()
       const running = !block || !('kind' in block)
       const data = resultJson(block) || {}
       const name = data.name || callArgs(block).name || ''
       React.useEffect(() => {
-        if (!running && name) openPart(name)
-      }, [running, name])
+        if (running || !name || !sessionId) return
+        let cancelled = false
+        const bind = async () => {
+          try {
+            await withSessionLock(async () => {
+              if (cancelled) return
+              const map = await fetchSessionMap()
+              if (cancelled) return
+              const currentBound = map.bySession[sessionId]
+              if (!currentBound) {
+                await bindNameToSession(name, sessionId)
+                await renameSession(sessionId, name)
+              }
+            })
+          } catch {}
+          // Never sessionsApi.open here: that steals the sidebar click.
+          if (!cancelled && currentSessionId() === sessionId) openPart(name)
+        }
+        bind()
+        return () => { cancelled = true }
+      }, [running, name, sessionId])
       const qa = data.qa
       const size = data.facts && data.facts.size_mm
       return e('div', { className: 'ec-card', 'data-state': running ? 'running' : (block.isError ? 'error' : 'ok') },
         e('div', { className: 'ec-row' },
           e('strong', null, 'EasyCAD'),
           e('span', null, running ? (toolName + '…') : (name || toolName)),
-          qa ? e('span', { className: 'ec-qa', 'data-pass': String(Boolean(qa.pass)) }, qa.pass ? 'QA 通过' : 'QA 未过') : null,
+          qa ? e('span', { className: 'ec-qa', 'data-pass': String(Boolean(qa.pass)) }, qa.pass ? t(locale, 'qaPass') : t(locale, 'qaFail')) : null,
           size ? e('span', null, size.join(' × ') + ' mm') : null,
-          name ? e('button', { type: 'button', onClick: () => openPart(name) }, '分屏查看') : null,
+          name ? e('button', { type: 'button', onClick: () => openPart(name) }, t(locale, 'openSplit')) : null,
         ),
       )
     }
@@ -359,6 +625,18 @@ window.__ModuleLoader__.load({
     // Locate the part whose stem matches `stem` inside the file tree. Returns
     // the containing directory path ('' = models root) and the node's own
     // model-relative path, or null when the tree has not loaded it yet.
+    function partHasRunner(tree, stem) {
+      const needle = `${stem}.runner.json`
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node.kind === 'file' && (node.name === needle || String(node.path || '').endsWith(needle))) return true
+          if (node.kind === 'dir' && walk(node.children || [])) return true
+        }
+        return false
+      }
+      return walk(tree)
+    }
+
     function locatePart(tree, stem) {
       let dirPath = null
       let filePath = null
@@ -448,7 +726,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function FileTree({ fileTree, current, expanded, selectedRow, onToggleDir, onOpenFile, onContextMenu }) {
+    function FileTree({ fileTree, current, expanded, selectedRow, onToggleDir, onOpenFile, onContextMenu, emptyLabel }) {
       return e('div', { className: 'ec-tree-body' },
         fileTree.length
           ? fileTree.map((node, i) => e(TreeNode, {
@@ -462,13 +740,27 @@ window.__ModuleLoader__.load({
               onOpenFile,
               onContextMenu,
             }))
-          : e('div', { className: 'ec-empty' }, '工作区没有可预览的 STEP/GLB。'),
+          : e('div', { className: 'ec-empty' }, emptyLabel || COPY.zh.emptyTree),
       )
     }
 
-    function CadOverlay() {
+    function CadOverlay({ useSessions }) {
+      const locale = useLocale()
+      const hookedSession = useSessions ? useSessions((state) => state.current) : null
+      const [polledSession, setPolledSession] = React.useState(() => currentSessionId())
+      React.useEffect(() => {
+        if (useSessions) return undefined
+        const id = setInterval(() => setPolledSession(currentSessionId()), 400)
+        return () => clearInterval(id)
+      }, [useSessions])
+      const currentSession = useSessions ? hookedSession : polledSession
       const [open, setOpen] = React.useState(false)
       const [name, setName] = React.useState('')
+      React.useEffect(() => {
+        if (!name) return undefined
+        writeLocale(locale, name)
+        return undefined
+      }, [name])
       const [paneWidth, setPaneWidth] = React.useState(() => readNumber(PANE_KEY, DEFAULT_PANE, MIN_PANE, MAX_PANE))
       const [treeWidth, setTreeWidth] = React.useState(() => readNumber(TREE_KEY, DEFAULT_TREE, MIN_TREE, MAX_TREE))
       const [treeOpen, setTreeOpenState] = React.useState(() => readBool(TREE_OPEN_KEY, true))
@@ -526,6 +818,9 @@ window.__ModuleLoader__.load({
       // models/ opens straight from its GLB; anything else is imported by path.
       const openPartNode = async (node) => {
         setSelectedRow(node.path)
+        if (node.stem) {
+          try { await ensureSessionFor(node.stem) } catch {}
+        }
         if (knownStemsRef.current.has(node.stem)) {
           setName(node.stem)
           setOpen(true)
@@ -623,6 +918,30 @@ window.__ModuleLoader__.load({
       }, [fileTree, name])
 
       React.useEffect(() => {
+        if (!currentSession) {
+          setOpen(false)
+          setPaneLayoutOpen(false)
+          return
+        }
+        let cancelled = false
+        ;(async () => {
+          try { await pruneDeadSessions() } catch {}
+          const map = await fetchSessionMap()
+          if (cancelled) return
+          const bound = map.bySession[currentSession]
+          if (!bound) {
+            setOpen(false)
+            setPaneLayoutOpen(false)
+            return
+          }
+          setName(bound)
+          setOpen(true)
+          setPaneLayoutOpen(true)
+        })()
+        return () => { cancelled = true }
+      }, [currentSession])
+
+      React.useEffect(() => {
         const onOpen = (event) => {
           if (event.detail && event.detail.name) {
             setName(event.detail.name)
@@ -631,6 +950,13 @@ window.__ModuleLoader__.load({
           }
         }
         window.addEventListener('easycad:open', onOpen)
+        const onAdvice = async (event) => {
+          const data = event && event.data
+          if (!data || data.type !== 'easycad:run-advice' || !data.prompt) return
+          const ok = await promptCurrentSession(data.prompt)
+          if (!ok) window.alert(t(readLocale(), 'runAdviceFail'))
+        }
+        window.addEventListener('message', onAdvice)
         let last = 0
         const tick = async () => {
           try {
@@ -638,18 +964,27 @@ window.__ModuleLoader__.load({
             if (!res.ok) return
             const latest = await res.json()
             const stamp = Number(latest.updatedAt) || 0
-            if (latest.name && stamp && stamp !== last) {
-              last = stamp
-              setName(latest.name)
-              setOpen(true)
-              setPaneLayoutOpen(true)
+            if (!latest.name || !stamp || stamp === last) return
+            last = stamp
+            const map = await fetchSessionMap()
+            const sid = currentSessionId()
+            const bound = sid && map.bySession[sid]
+            if (bound) {
+              if (bound !== latest.name) return
+            } else {
+              const summary = sid && sessionSummary(sid)
+              if (summary && !summary.blank) return
             }
+            setName(latest.name)
+            setOpen(true)
+            setPaneLayoutOpen(true)
           } catch {}
         }
         tick()
         const id = setInterval(tick, 2500)
         return () => {
           window.removeEventListener('easycad:open', onOpen)
+          window.removeEventListener('message', onAdvice)
           clearInterval(id)
           setPaneLayoutOpen(false)
         }
@@ -677,6 +1012,7 @@ window.__ModuleLoader__.load({
       // (scripts\start-cad-viewer.ps1) is currently disabled; its source is
       // kept under easycad/cad-viewer for a future re-enable.
       const src = '/easycad/view?name=' + encodeURIComponent(name) + '&embed=1&panel=1'
+        + (partHasRunner(fileTree, name) ? '&work=runner' : '')
       const toggleDir = (dir) => {
         const next = new Set(expandedDirs)
         if (next.has(dir)) next.delete(dir)
@@ -703,12 +1039,12 @@ window.__ModuleLoader__.load({
         if (!node) return
         setCtxMenu(null)
         const label = node.name || node.path
-        if (!window.confirm('确定删除文件「' + label + '」吗？此操作不可撤销。')) return
+        if (!window.confirm(t(locale, 'confirmDelete', { name: label }))) return
         try {
           const res = await fetch('/easycad/delete?path=' + encodeURIComponent(node.path), { method: 'POST' })
           const data = await res.json().catch(() => ({}))
           if (!res.ok || !data.ok) {
-            window.alert((data && data.error) || '删除失败')
+            window.alert((data && data.error) || t(locale, 'deleteFailed'))
             return
           }
           const nextTree = await refreshLists()
@@ -719,7 +1055,7 @@ window.__ModuleLoader__.load({
             setPaneLayoutOpen(false)
           }
         } catch (err) {
-          window.alert('删除失败：' + (err && err.message ? err.message : String(err)))
+          window.alert(t(locale, 'deleteFailedDetail', { error: (err && err.message ? err.message : String(err)) }))
         }
       }
 
@@ -728,13 +1064,28 @@ window.__ModuleLoader__.load({
         'data-shell-overlay-entry': 'easycad',
         style: { width: `${paneWidth}px` },
       },
-        e('div', { className: 'ec-resize', title: '拖动调整分屏宽度', ...paneResize }),
+        e('div', { className: 'ec-resize', title: t(locale, 'resizePane'), ...paneResize }),
         e('div', { className: 'ec-head' },
           e('strong', null, 'EasyCAD'),
           e('span', { className: 'ec-part', title: partLabel }, partLabel),
+          e('span', { className: 'ec-mem', title: t(locale, 'memoryTitle') }, t(locale, 'memory')),
           e('div', { style: { flex: 1 } }),
-          e('button', { type: 'button', onClick: doRefresh }, '刷新'),
-          e('button', { type: 'button', onClick: closePane }, '收起'),
+          e('button', {
+            type: 'button',
+            className: 'ec-lang',
+            title: t(locale, 'langTitle'),
+            'aria-label': t(locale, 'langTitle'),
+            onClick: (event) => {
+              const label = event.target && event.target.textContent
+              const next = label === 'EN' ? 'en' : (label === '中' ? 'zh' : (locale === 'zh' ? 'en' : 'zh'))
+              writeLocale(next, name)
+            },
+          },
+            e('span', { 'data-on': locale === 'zh' ? 'true' : 'false' }, '中'),
+            e('span', { 'data-on': locale === 'en' ? 'true' : 'false' }, 'EN'),
+          ),
+          e('button', { type: 'button', onClick: doRefresh }, t(locale, 'refresh')),
+          e('button', { type: 'button', onClick: closePane }, t(locale, 'collapse')),
         ),
         e('div', { className: 'ec-cols' },
           e('section', {
@@ -742,13 +1093,13 @@ window.__ModuleLoader__.load({
             style: { width: treeOpen ? `${treeWidth}px` : `${TREE_RAIL}px` },
           },
             e('div', { className: 'ec-tree-head' },
-              treeOpen ? e('span', { className: 'ec-tree-head-label' }, '3D 模型') : null,
+              treeOpen ? e('span', { className: 'ec-tree-head-label' }, t(locale, 'models')) : null,
               e('div', { className: 'ec-tree-head-actions' },
                 e('button', {
                   type: 'button',
                   className: 'ec-tree-toggle',
-                  title: treeOpen ? '收起文件树' : '展开文件树',
-                  'aria-label': treeOpen ? '收起文件树' : '展开文件树',
+                  title: treeOpen ? t(locale, 'collapseTree') : t(locale, 'expandTree'),
+                  'aria-label': treeOpen ? t(locale, 'collapseTree') : t(locale, 'expandTree'),
                   onClick: () => setTreeOpen(!treeOpen),
                 },
                   e('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': 'true' },
@@ -767,15 +1118,16 @@ window.__ModuleLoader__.load({
               onToggleDir: toggleDir,
               onOpenFile: openPartNode,
               onContextMenu: onRowContextMenu,
+              emptyLabel: t(locale, 'emptyTree'),
             }) : null,
           ),
           treeOpen ? e('div', {
             className: 'ec-colsep',
-            title: '拖动调整文件树宽度',
+            title: t(locale, 'resizeTree'),
             ...treeResize,
           }) : null,
           e('section', { className: 'ec-view' },
-            e('iframe', { className: 'ec-frame', title: 'EasyCAD 3D', src, key: `${name}__${reloadKey}` }),
+            e('iframe', { className: 'ec-frame', title: t(locale, 'iframeTitle'), src, key: `${name}__${reloadKey}` }),
           ),
         ),
         ctxMenu ? e('div', {
@@ -791,14 +1143,16 @@ window.__ModuleLoader__.load({
           },
           onContextMenu: (ev) => ev.preventDefault(),
         },
-          e('div', { className: 'ec-ctx-item', onClick: () => doDownload(ctxMenu.node) }, '下载'),
-          e('div', { className: 'ec-ctx-item ec-ctx-danger', onClick: () => doDelete(ctxMenu.node) }, '删除'),
+          e('div', { className: 'ec-ctx-item', onClick: () => doDownload(ctxMenu.node) }, t(locale, 'download')),
+          e('div', { className: 'ec-ctx-item ec-ctx-danger', onClick: () => doDelete(ctxMenu.node) }, t(locale, 'delete')),
         ) : null,
       )
     }
 
-    const inject = ['slots']
+    const inject = ['slots', 'sessions', 'workspaces']
     function apply(ctx) {
+      sessionsApi = ctx.sessions
+      workspacesApi = ctx.workspaces
       for (const key of TOOLS) {
         ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
           name: 'tool.call.toolview',

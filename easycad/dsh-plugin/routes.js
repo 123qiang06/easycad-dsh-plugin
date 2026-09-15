@@ -109,6 +109,15 @@ function stemFromFile(fileName) {
   return fileName.replace(/\.(ir|brief)\.json$/i, '').replace(/\.(glb|step|stp|stl)$/i, '')
 }
 
+function sidecarOnly(fileName) {
+  return /\.(memory|qa|advice|similarity|topology|runner|runner\.qa)\.json$/i.test(fileName)
+    || /\.(shot|mold)\.(step|stp|glb)$/i.test(fileName)
+}
+
+function isShotArtifact(fileName) {
+  return /\.(shot|mold)\.(step|stp|glb)$/i.test(fileName)
+}
+
 function scanModelFiles(modelsDir, relDir, byName) {
   if (!existsSync(modelsDir)) return
   for (const entry of readdirSync(modelsDir, { withFileTypes: true })) {
@@ -118,6 +127,7 @@ function scanModelFiles(modelsDir, relDir, byName) {
       scanModelFiles(join(modelsDir, entry.name), relPath, byName)
       continue
     }
+    if (sidecarOnly(entry.name) || isShotArtifact(entry.name)) continue
     const stem = stemFromFile(entry.name)
     if (!stem) continue
     const row = byName.get(stem) || {
@@ -149,6 +159,7 @@ function buildModelsTree(modelsDir, relDir = '') {
       nodes.push({ kind: 'dir', name: entry.name, path: relPath, abs: join(modelsDir, relPath), children })
       continue
     }
+    if (sidecarOnly(entry.name)) continue
     const ext = extname(entry.name).toLowerCase()
     const stem = stemFromFile(entry.name)
     nodes.push({
@@ -174,6 +185,188 @@ function listParts(modelsDir) {
   scanModelFiles(modelsDir, '', byName)
   const parts = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
   return { names: parts.map((p) => p.name), parts }
+}
+
+const SESSIONS_FILE = '.easycad-sessions.json'
+const LOCALE_FILE = '.easycad-locale.json'
+
+export function replyInject(locale) {
+  return locale === 'en'
+    ? 'Reply in English. Chat, QA commentary, and AI suggestions must all be English. Do not mix Chinese into user-facing text.'
+    : '请用简体中文回复。对话、质检说明和 AI 建议都用中文，不要中英混写。'
+}
+
+export function readUiLocale(modelsDir) {
+  const raw = readJsonFile(join(modelsDir, LOCALE_FILE), { locale: 'zh' })
+  return raw && raw.locale === 'en' ? 'en' : 'zh'
+}
+
+export function writeUiLocale(modelsDir, locale) {
+  const next = locale === 'en' ? 'en' : 'zh'
+  writeFileSync(join(modelsDir, LOCALE_FILE), `${JSON.stringify({ locale: next }, null, 2)}\n`, 'utf8')
+  return next
+}
+
+function emptySessionMap() {
+  return { byName: {}, bySession: {} }
+}
+
+function readJsonFile(filePath, fallback) {
+  if (!existsSync(filePath)) return fallback
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'))
+  } catch {
+    return fallback
+  }
+}
+
+export function readSessionMap(modelsDir) {
+  const raw = readJsonFile(join(modelsDir, SESSIONS_FILE), emptySessionMap())
+  return {
+    byName: raw && typeof raw.byName === 'object' && raw.byName ? raw.byName : {},
+    bySession: raw && typeof raw.bySession === 'object' && raw.bySession ? raw.bySession : {},
+  }
+}
+
+function writeSessionMap(modelsDir, map) {
+  writeFileSync(join(modelsDir, SESSIONS_FILE), `${JSON.stringify(map, null, 2)}\n`, 'utf8')
+  return map
+}
+
+export function bindSession(modelsDir, name, sessionId) {
+  const stem = String(name || '').trim()
+  const sid = String(sessionId || '').trim()
+  if (!stem || !sid) throw new Error('name and sessionId required')
+  const map = readSessionMap(modelsDir)
+  const prevSid = map.byName[stem] && map.byName[stem].sessionId
+  if (prevSid && map.bySession[prevSid] === stem) delete map.bySession[prevSid]
+  const prevName = map.bySession[sid]
+  if (prevName && map.byName[prevName]) delete map.byName[prevName]
+  map.byName[stem] = { sessionId: sid, updatedAt: Date.now() }
+  map.bySession[sid] = stem
+  return writeSessionMap(modelsDir, map)
+}
+
+export function unbindSession(modelsDir, name) {
+  const stem = String(name || '').trim()
+  const map = readSessionMap(modelsDir)
+  const row = stem && map.byName[stem]
+  if (!row) return map
+  delete map.byName[stem]
+  if (row.sessionId && map.bySession[row.sessionId] === stem) delete map.bySession[row.sessionId]
+  return writeSessionMap(modelsDir, map)
+}
+
+export function pruneSessions(modelsDir, deadIds) {
+  const ids = Array.isArray(deadIds) ? deadIds.map((id) => String(id || '').trim()).filter(Boolean) : []
+  if (!ids.length) return readSessionMap(modelsDir)
+  const map = readSessionMap(modelsDir)
+  let changed = false
+  for (const sid of ids) {
+    const stem = map.bySession[sid]
+    if (!stem) continue
+    delete map.bySession[sid]
+    if (map.byName[stem] && map.byName[stem].sessionId === sid) delete map.byName[stem]
+    changed = true
+  }
+  return changed ? writeSessionMap(modelsDir, map) : map
+}
+
+function partStillOnDisk(modelsDir, stem) {
+  if (!stem) return false
+  return ['.step.py', '.step', '.stp', '.glb'].some((ext) => existsSync(join(modelsDir, `${stem}${ext}`)))
+}
+
+export function buildPartMemory(modelsDir, name) {
+  const stem = String(name || '').trim()
+  if (!stem) throw new Error('name required')
+  const script = join(modelsDir, `${stem}.step.py`)
+  const step = join(modelsDir, `${stem}.step`)
+  const exists = existsSync(script) || existsSync(step) || existsSync(join(modelsDir, `${stem}.glb`))
+  const stored = readJsonFile(join(modelsDir, `${stem}.memory.json`), null)
+  const brief = readJsonFile(join(modelsDir, `${stem}.brief.json`), null)
+  const ir = readJsonFile(join(modelsDir, `${stem}.ir.json`), null)
+  const qa = readJsonFile(join(modelsDir, `${stem}.qa.json`), null)
+  const sessions = readSessionMap(modelsDir)
+  const locale = readUiLocale(modelsDir)
+  const artifacts = {}
+  for (const [key, suffix] of [
+    ['script', '.step.py'],
+    ['step', '.step'],
+    ['glb', '.glb'],
+    ['ir', '.ir.json'],
+    ['brief', '.brief.json'],
+    ['runner', '.runner.json'],
+    ['shot_step', '.shot.step'],
+    ['shot_glb', '.shot.glb'],
+    ['mold_step', '.mold.step'],
+    ['mold_glb', '.mold.glb'],
+  ]) {
+    if (existsSync(join(modelsDir, `${stem}${suffix}`))) artifacts[key] = `models/${stem}${suffix}`
+  }
+  const runner = readJsonFile(join(modelsDir, `${stem}.runner.json`), null)
+  const card = {
+    ok: true,
+    name: stem,
+    exists,
+    mode: exists ? 'edit' : 'create',
+    sessionId: sessions.byName[stem] ? sessions.byName[stem].sessionId : null,
+    intent: (ir && ir.intent) || (brief && brief.notes) || (stored && stored.intent) || '',
+    envelope: (ir && ir.envelope) || (stored && stored.envelope) || (stored && stored.trust && stored.trust.high && stored.trust.high.envelope) || null,
+    params: (ir && ir.params) || (stored && stored.params) || (stored && stored.trust && stored.trust.high && stored.trust.high.params) || null,
+    features: (ir && ir.features) || (brief && brief.special_features) || [],
+    runner: runner || null,
+    qa: qa || (stored && stored.qa) || (stored && stored.trust && stored.trust.high && stored.trust.high.qa) || null,
+    facts: (stored && stored.facts) || (stored && stored.trust && stored.trust.high && stored.trust.high.facts) || null,
+    artifacts,
+    memory_path: existsSync(join(modelsDir, `${stem}.memory.json`)) ? `models/${stem}.memory.json` : null,
+    events_path: existsSync(join(modelsDir, `${stem}.events.jsonl`)) ? `models/${stem}.events.jsonl` : null,
+    trust: (stored && stored.trust) || null,
+    locale,
+    reply_in: locale,
+    inject: {
+      ...((stored && stored.inject) || {
+        high: {
+          facts: stored && stored.facts ? stored.facts : null,
+          envelope: (ir && ir.envelope) || (stored && stored.envelope) || null,
+          params: (ir && ir.params) || (stored && stored.params) || null,
+          qa: qa || (stored && stored.qa) || null,
+          runner: runner ? {
+            parting_dir: runner.brief && runner.brief.parting_dir,
+            selected: runner.selected || null,
+            gate_face_ids: (runner.built && runner.built.gate_face_ids) || (runner.brief && runner.brief.gate_face_ids) || [],
+            qa_pass: runner.built && runner.built.qa ? Boolean(runner.built.qa.pass) : null,
+          } : null,
+        },
+        medium: {
+          intent: (ir && ir.intent) || (stored && stored.intent) || '',
+          features: (ir && ir.features) || [],
+        },
+        skip: ['advice', 'similarity', 'chat_sizes'],
+      }),
+      locale,
+      reply: replyInject(locale),
+    },
+    hint: exists
+      ? (locale === 'en'
+        ? 'Existing part. Stay on this session. Trust inject.high for sizes. Follow inject.reply for language.'
+        : '已有零件，留在本会话。尺寸以 inject.high 为准。回复语言以 inject.reply 为准。')
+      : (locale === 'en'
+        ? 'New part. Call easycad_brief then easycad_review then easycad_gen. Follow inject.reply for language.'
+        : '新零件：先 brief，再 review，再 gen。回复语言以 inject.reply 为准。'),
+  }
+  if (runner && card.inject) {
+    card.inject.high = {
+      ...(card.inject.high || {}),
+      runner: {
+        parting_dir: runner.brief && runner.brief.parting_dir,
+        selected: runner.selected || null,
+        gate_face_ids: (runner.built && runner.built.gate_face_ids) || (runner.brief && runner.brief.gate_face_ids) || [],
+        qa_pass: runner.built && runner.built.qa ? Boolean(runner.built.qa.pass) : null,
+      },
+    }
+  }
+  return card
 }
 
 // Workspace subdirectories to skip when auto-scanning for 3D parts: reference
@@ -203,6 +396,7 @@ function buildWorkspace3dTree(root) {
         const ext = extname(entry.name).toLowerCase()
         if (ext !== '.glb' && ext !== '.step' && ext !== '.stp') continue
         if (/^__/.test(entry.name)) continue
+        if (isShotArtifact(entry.name)) continue
         const stem = stemFromFile(entry.name)
         if (!stem) continue
         items.push({ name: entry.name, rel, abs: join(dir, entry.name), stem, ext })
@@ -247,6 +441,25 @@ export async function handleRequest(paths, req, res) {
     sendFile(res, join(previewDir, 'index.html'), 'text/html; charset=utf-8')
     return
   }
+  if (path === '/easycad/locale') {
+    if (req.method === 'POST') {
+      try {
+        const payload = JSON.parse((await readBody(req)).toString('utf8') || '{}')
+        const locale = writeUiLocale(modelsDir, payload.locale)
+        const name = String(payload.name || '').trim()
+        let advice = null
+        if (name && workerJob) {
+          advice = await workerJob({ cmd: 'advice', name })
+        }
+        send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify({ ok: true, locale, advice })}\n`)
+      } catch (error) {
+        send(res, 400, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
+      }
+      return
+    }
+    send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify({ locale: readUiLocale(modelsDir) })}\n`)
+    return
+  }
   if (path === '/easycad/latest') {
     const file = join(modelsDir, '.easycad-latest.json')
     if (!existsSync(file)) {
@@ -258,6 +471,49 @@ export async function handleRequest(paths, req, res) {
   }
   if (path === '/easycad/parts') {
     send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify(listParts(modelsDir))}\n`)
+    return
+  }
+  if (path === '/easycad/sessions' && req.method !== 'POST') {
+    send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify(readSessionMap(modelsDir))}\n`)
+    return
+  }
+  if (path === '/easycad/sessions/bind' && req.method === 'POST') {
+    try {
+      const payload = JSON.parse((await readBody(req)).toString('utf8') || '{}')
+      const map = bindSession(modelsDir, payload.name, payload.sessionId)
+      send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify({ ok: true, ...map })}\n`)
+    } catch (error) {
+      send(res, 400, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
+    }
+    return
+  }
+  if (path === '/easycad/sessions/unbind' && req.method === 'POST') {
+    try {
+      const payload = JSON.parse((await readBody(req)).toString('utf8') || '{}')
+      const map = unbindSession(modelsDir, payload.name)
+      send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify({ ok: true, ...map })}\n`)
+    } catch (error) {
+      send(res, 400, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
+    }
+    return
+  }
+  if (path === '/easycad/sessions/prune' && req.method === 'POST') {
+    try {
+      const payload = JSON.parse((await readBody(req)).toString('utf8') || '{}')
+      const map = pruneSessions(modelsDir, payload.deadIds || payload.sessionIds)
+      send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify({ ok: true, ...map })}\n`)
+    } catch (error) {
+      send(res, 400, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
+    }
+    return
+  }
+  if (path === '/easycad/memory') {
+    const name = url.searchParams.get('name') || ''
+    try {
+      send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify(buildPartMemory(modelsDir, name))}\n`)
+    } catch (error) {
+      send(res, 400, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
+    }
     return
   }
   if (path === '/easycad/modelsdir') {
@@ -298,6 +554,66 @@ export async function handleRequest(paths, req, res) {
     } catch (error) {
       send(res, 500, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
     }
+    return
+  }
+  if (path === '/easycad/runner') {
+    const name = (url.searchParams.get('name') || '').trim()
+    if (req.method === 'POST') {
+      try {
+        const payload = JSON.parse((await readBody(req)).toString('utf8') || '{}')
+        const stem = String(payload.name || name || '').trim()
+        if (!stem) {
+          send(res, 400, 'application/json; charset=utf-8', '{"ok":false,"error":"name required"}\n')
+          return
+        }
+        const action = String(payload.cmd || payload.action || 'review')
+        let job
+        if (action === 'apply') {
+          job = { cmd: 'apply', name: stem, params: payload.params || payload }
+        } else if (action === 'brief') {
+          job = { cmd: 'runner-brief', name: stem, payload }
+        } else if (action === 'review') {
+          job = { cmd: 'runner-review', name: stem }
+        } else if (action === 'propose') {
+          job = { cmd: 'runner-propose', name: stem }
+        } else if (action === 'build') {
+          job = { cmd: 'runner-build', name: stem, candidate: payload.candidate || '' }
+        } else if (action === 'qa') {
+          job = { cmd: 'runner-qa', name: stem }
+        } else if (action === 'mold') {
+          job = { cmd: 'runner-mold', name: stem }
+        } else {
+          send(res, 400, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: `unknown runner cmd: ${action}` })}\n`)
+          return
+        }
+        const result = workerJob
+          ? await workerJob(job)
+          : await runCadCli(pythonBin, cli, easycadRoot, job.cmd === 'apply'
+            ? ['apply', '--name', stem, '--json-stdin']
+            : job.cmd === 'runner-brief'
+              ? ['runner-brief', '--name', stem, '--json-stdin']
+              : job.cmd === 'runner-build'
+                ? ['runner-build', stem, '--candidate', String(job.candidate || '')]
+                : [job.cmd, stem],
+          job.cmd === 'apply' || job.cmd === 'runner-brief' ? JSON.stringify(payload.params || payload) : undefined)
+        send(res, result.ok === false ? 400 : 200, 'application/json; charset=utf-8', `${JSON.stringify(result)}\n`)
+      } catch (error) {
+        send(res, 500, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)
+      }
+      return
+    }
+    if (!name) {
+      send(res, 400, 'application/json; charset=utf-8', '{"ok":false,"error":"name required"}\n')
+      return
+    }
+    const data = readJsonFile(join(modelsDir, `${name}.runner.json`), {})
+    send(res, 200, 'application/json; charset=utf-8', `${JSON.stringify({
+      ok: true,
+      ...(data && typeof data === 'object' ? data : {}),
+      name,
+      hasShot: existsSync(join(modelsDir, `${name}.shot.glb`)),
+      hasMold: existsSync(join(modelsDir, `${name}.mold.glb`)),
+    })}\n`)
     return
   }
   if (path === '/easycad/apply' && req.method === 'POST') {
@@ -381,7 +697,9 @@ export async function handleRequest(paths, req, res) {
       return
     }
     try {
+      const stem = stemFromFile(basename(file))
       unlinkSync(file)
+      if (stem && !partStillOnDisk(modelsDir, stem)) unbindSession(modelsDir, stem)
       send(res, 200, 'application/json; charset=utf-8', '{"ok":true}\n')
     } catch (error) {
       send(res, 500, 'application/json; charset=utf-8', `${JSON.stringify({ ok: false, error: String(error.message || error) })}\n`)

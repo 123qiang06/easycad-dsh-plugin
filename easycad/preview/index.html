@@ -134,6 +134,8 @@
       position: absolute; left: 10px; bottom: 10px; z-index: 1;
       color: var(--ec-muted); font-size: 11px; pointer-events: none;
     }
+    .viewport-hint[data-kind="error"] { color: #dc2626; font-weight: 600; }
+    .overlay[data-kind="error"] { color: #dc2626; }
     .viewport-toolbar {
       position: absolute; right: 10px; bottom: 10px; z-index: 1;
       display: flex; gap: 4px; padding: 4px;
@@ -201,6 +203,21 @@
     .issue-row[data-kind="bad"] { color: #c62828; }
     .issue-row[data-kind="warn"] { color: #b45309; background: #fef3c7; margin: 2px 6px; padding: 5px 8px; }
     .advice-item { padding: 2px 10px; font-size: 11px; color: var(--ec-text); line-height: 1.55; }
+    .advice-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 8px 10px; border-bottom: 1px solid var(--ec-border);
+    }
+    .advice-row:last-child { border-bottom: 0; }
+    .advice-copy { flex: 1; min-width: 0; }
+    .advice-title { font-size: 12px; font-weight: 650; color: var(--ec-text); }
+    .advice-text { font-size: 11px; color: var(--ec-muted); margin-top: 2px; line-height: 1.45; }
+    .advice-run {
+      flex-shrink: 0; border: 0; border-radius: 6px;
+      background: var(--ec-accent); color: #fff;
+      padding: 5px 9px; font: inherit; font-size: 11px; cursor: pointer;
+    }
+    .advice-run:hover { background: #1d4ed8; }
+    .advice-run:disabled { background: #93c5fd; cursor: wait; }
     .tree-item { padding: 3px 10px; font-size: 11px; color: var(--ec-text); cursor: pointer; user-select: none; -webkit-user-select: none; }
     .tree-item:hover { background: #f4f5f7; }
     .tree-root { font-weight: 650; }
@@ -258,6 +275,35 @@
       padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer;
     }
     button.ghost:hover { background: var(--ec-bg); }
+    .runner-field {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px; font-size: 11px;
+    }
+    .runner-field label { width: 64px; flex-shrink: 0; color: var(--ec-muted); }
+    .runner-field select, .runner-field input[type="number"] {
+      flex: 1; min-width: 0; border: 1px solid var(--ec-border);
+      border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 11px;
+      background: #fff;
+    }
+    .runner-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 10px 6px; }
+    .runner-chip {
+      border: 1px solid var(--ec-border); border-radius: 999px;
+      background: var(--ec-bg); color: var(--ec-text);
+      padding: 2px 8px; font: inherit; font-size: 10px; cursor: pointer;
+    }
+    .runner-chip[data-kind="gate"] { background: #ecfdf5; border-color: #86efac; color: #166534; }
+    .runner-chip[data-kind="keepout"] { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+    .runner-chip[data-kind="cand"][data-active="true"] {
+      background: #eff6ff; border-color: #93c5fd; color: var(--ec-accent);
+    }
+    .runner-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 10px 8px; }
+    .runner-note { padding: 2px 10px 8px; font-size: 10px; color: var(--ec-muted); line-height: 1.45; }
+    .pick-modes { display: flex; gap: 4px; padding: 4px 10px 6px; }
+    .pick-modes button[data-active="true"],
+    .runner-actions button[data-active="true"] {
+      background: #eff6ff; border-color: #93c5fd; color: var(--ec-accent);
+    }
+    .runner-actions button { min-height: 28px; }
     .statusbar {
       height: var(--ec-status-h);
       display: flex; align-items: center; padding: 0 10px;
@@ -289,6 +335,40 @@
     body.panel .topbar, body.panel .statusbar,
     body.panel .parts-panel { display: none; }
     body.panel .viewport-area { flex: 1; }
+    body.work-runner { --ec-sheet-w: 288px; }
+    body.panel.work-runner, body.embed.work-runner { --ec-sheet-w: 288px; }
+    .sheet-panel { display: flex; flex-direction: column; }
+    .sheet-tabs {
+      display: flex; flex-shrink: 0; position: sticky; top: 0; z-index: 2;
+      background: var(--ec-panel); border-bottom: 1px solid var(--ec-border);
+    }
+    .sheet-tabs button {
+      flex: 1; border: 0; border-bottom: 2px solid transparent;
+      background: transparent; color: var(--ec-muted);
+      padding: 9px 6px 8px; font: inherit; font-size: 12px; font-weight: 650;
+      cursor: pointer;
+    }
+    .sheet-tabs button:hover { background: var(--ec-bg); color: var(--ec-text); }
+    .sheet-tabs button[data-active="true"] {
+      color: var(--ec-accent); border-bottom-color: var(--ec-accent); background: #eff6ff;
+    }
+    .work-pane { flex: 1; min-height: 0; overflow: auto; }
+    body.work-part #work-runner { display: none; }
+    body.work-runner #work-part { display: none; }
+    .runner-step-h {
+      padding: 8px 10px 2px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase; color: var(--ec-muted);
+    }
+    .runner-card {
+      margin: 4px 8px; padding: 7px 8px; border: 1px solid var(--ec-border);
+      border-radius: 8px; background: #fff; cursor: pointer; text-align: left;
+      font: inherit; width: calc(100% - 16px);
+    }
+    .runner-card:hover { background: var(--ec-bg); }
+    .runner-card[data-active="true"] { border-color: #93c5fd; background: #eff6ff; }
+    .runner-card-id { font-size: 12px; font-weight: 700; color: var(--ec-text); }
+    .runner-card-why { font-size: 11px; color: var(--ec-muted); margin-top: 2px; line-height: 1.4; }
+    .runner-card-meta { font-size: 10px; color: #6b7280; margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; }
   </style>
   <script type="importmap">
   {
@@ -303,10 +383,10 @@
   <div class="workbench">
     <header class="topbar">
       <div class="brand">EasyCAD</div>
-      <nav class="crumb" aria-label="路径">
+      <nav class="crumb" aria-label="路径" data-i18n-aria="crumbAria">
         <span>models</span><span>/</span><strong id="crumb-name">—</strong>
       </nav>
-      <select id="parts" aria-label="零件"></select>
+      <select id="parts" aria-label="零件" data-i18n-aria="partsAria"></select>
       <div class="dims-badge" id="dims">—</div>
       <div class="spacer"></div>
     </header>
@@ -317,23 +397,29 @@
       </aside>
       <section class="viewport-area">
         <div id="view">
-          <div class="overlay" id="status">加载中…</div>
-          <div class="viewport-hint" id="hint">点选面或参数 · 拖动旋转</div>
-          <div class="viewport-toolbar" role="group" aria-label="视图">
-            <button type="button" data-view="iso" data-active="true">等轴</button>
-            <button type="button" data-view="front">正视</button>
-            <button type="button" data-view="top">俯视</button>
-            <button type="button" data-view="right">右视</button>
-            <button type="button" class="ghost" id="reset-view">重置</button>
+          <div class="overlay" id="status" hidden data-i18n="loading">加载中…</div>
+          <div class="viewport-hint" id="hint" data-i18n="hint">点选面或参数 · 拖动旋转</div>
+          <div class="viewport-toolbar" role="group" aria-label="视图" data-i18n-aria="viewAria">
+            <button type="button" data-view="iso" data-active="true" data-i18n="viewIso">等轴</button>
+            <button type="button" data-view="front" data-i18n="viewFront">正视</button>
+            <button type="button" data-view="top" data-i18n="viewTop">俯视</button>
+            <button type="button" data-view="right" data-i18n="viewRight">右视</button>
+            <button type="button" class="ghost" id="view-mold" hidden data-i18n="runnerViewMold">型腔</button>
+            <button type="button" class="ghost" id="reset-view" data-i18n="viewReset">重置</button>
           </div>
           <div class="floating-edit" id="floating-edit" hidden></div>
         </div>
       </section>
-      <div class="sheet-resize-grip" id="sheet-grip" title="拖动调整面板宽度" role="separator" aria-orientation="vertical"></div>
+      <div class="sheet-resize-grip" id="sheet-grip" title="拖动调整面板宽度" data-i18n-title="resizeSheet" role="separator" aria-orientation="vertical"></div>
       <aside class="sheet-panel" id="sheet">
+        <div class="sheet-tabs" role="tablist" aria-label="工作台" data-i18n-aria="workTabsAria">
+          <button type="button" role="tab" data-work="part" data-active="true" data-i18n="workPart">零件</button>
+          <button type="button" role="tab" data-work="runner" data-i18n="workRunner">流道系统</button>
+        </div>
+        <div id="work-part" class="work-pane">
         <details class="section" open>
-          <summary>AI 建议</summary>
-          <div class="section-body" id="advice"><div class="info-empty">生成零件后自动生成 AI 建议。</div></div>
+          <summary data-i18n="secAdvice">AI 建议</summary>
+          <div class="section-body" id="advice"><div class="info-empty" data-i18n="adviceEmpty">暂无待执行项。通过质检后可导出，失败项会列在这里。</div></div>
         </details>
         <details class="section" open>
           <summary>Issues <span class="sec-badge" id="issues-badge"></span></summary>
@@ -344,37 +430,45 @@
           <div class="section-body" id="tree"><div class="info-empty">—</div></div>
         </details>
         <details class="section" open>
-          <summary>Parameters</summary>
+          <summary data-i18n="secParams">Parameters</summary>
           <div class="section-body" id="param-list"></div>
         </details>
         <details class="section" open>
-          <summary>选中面</summary>
-          <div class="section-body" id="face-info"><div class="info-empty">在 3D 视图中点选一个面。</div></div>
+          <summary data-i18n="secFace">选中面</summary>
+          <div class="section-body" id="face-info"><div class="info-empty" data-i18n="faceEmpty">在 3D 视图中点选一个面。</div></div>
         </details>
         <details class="section" open>
-          <summary>编辑</summary>
+          <summary data-i18n="secEdit">编辑</summary>
           <div class="section-body">
-            <div class="inspector-empty" id="inspector-empty">选中面或参数行来改尺寸。</div>
+            <div class="inspector-empty" id="inspector-empty" data-i18n="editEmpty">选中面或参数行来改尺寸。</div>
             <div id="inspector-edit" hidden>
-              <div class="inspector-kicker">编辑尺寸 · 多个参数</div>
+              <div class="inspector-kicker" data-i18n="editKicker">编辑尺寸 · 多个参数</div>
               <div class="inspector-title" id="card-title"></div>
               <div class="inspector-hint" id="card-hint"></div>
               <div class="batch-fields" id="batch-fields"></div>
               <form id="form" class="row">
-                <button type="submit" class="primary" id="apply">应用</button>
-                <button type="button" class="ghost" id="clear">取消</button>
+                <button type="submit" class="primary" id="apply" data-i18n="apply">应用</button>
+                <button type="button" class="ghost" id="clear" data-i18n="cancel">取消</button>
               </form>
             </div>
           </div>
         </details>
         <details class="section" open>
-          <summary>Metadata</summary>
+          <summary data-i18n="secMeta">Metadata</summary>
           <div class="section-body" id="metadata"><div class="info-empty">—</div></div>
           <div class="section-body artifact-list" id="artifacts"></div>
         </details>
+        </div>
+        <div id="work-runner" class="work-pane">
+          <div class="runner-bench" id="runner-panel"><div class="info-empty" data-i18n="runnerEmpty">导入或生成零件后，可在此设分型、点面、提议并生成浇注系统。</div></div>
+          <details class="section" open>
+            <summary data-i18n="secFace">选中面</summary>
+            <div class="section-body" id="runner-face"><div class="info-empty" data-i18n="faceEmpty">在 3D 视图中点选一个面。</div></div>
+          </details>
+        </div>
       </aside>
     </div>
-    <footer class="statusbar" id="statusbar">就绪</footer>
+    <footer class="statusbar" id="statusbar" data-i18n="ready">就绪</footer>
   </div>
   <script type="module">
     import * as THREE from 'three'
@@ -391,6 +485,298 @@
     const PARAM_LABELS = {
       length: '长度', width: '宽度', height: '厚度', hole_d: '中心孔',
     }
+    const LOCALE_KEY = 'easycad:locale'
+    const I18N = {
+      zh: {
+        crumbAria: '路径',
+        partsAria: '零件',
+        loading: '加载中…',
+        hint: '点选面或参数 · 拖动旋转',
+        viewAria: '视图',
+        viewIso: '等轴',
+        viewFront: '正视',
+        viewTop: '俯视',
+        viewRight: '右视',
+        viewReset: '重置',
+        resizeSheet: '拖动调整面板宽度',
+        secAdvice: 'AI 建议',
+        adviceEmpty: '暂无待执行项。通过质检后可导出，失败项会列在这里。',
+        adviceNone: '暂无待执行项。',
+        adviceLabel: '建议',
+        adviceMode: '规则建议',
+        geoOk: '几何正常',
+        needsWork: '需要修改',
+        runAdvice: '执行',
+        runAdviceTitle: '发送到对话并执行',
+        runAdviceFail: '无法发送到对话',
+        secParams: 'Parameters',
+        secFace: '选中面',
+        faceEmpty: '在 3D 视图中点选一个面。',
+        secEdit: '编辑',
+        editEmpty: '选中面或参数行来改尺寸。',
+        editKicker: '编辑尺寸 · 多个参数',
+        apply: '应用',
+        cancel: '取消',
+        secMeta: 'Metadata',
+        ready: '就绪',
+        featLength: '长度',
+        featLengthHint: 'X 方向外形尺寸',
+        featWidth: '宽度',
+        featWidthHint: 'Y 方向外形尺寸',
+        featHeight: '厚度',
+        featHeightHint: 'Z 方向外形尺寸',
+        featHole: '中心孔直径',
+        featHoleHint: '通孔直径',
+        featHoleShort: '中心孔',
+        expand: '展开',
+        treeEmpty: 'models/ 为空。生成零件后会出现在这里。',
+        noArtifact: '无产物。',
+        noQa: '暂无校验数据。生成零件后自动记录 QA。',
+        simView: '视图',
+        simFragment: '参考图为工程图/多视图',
+        simMissing: '未提供参考图',
+        topoOk: '逐面拓扑已生成（{n} 个面可精确选中）',
+        topoMissing: '无 STEP 拓扑 sidecar（曲面/边精度受限）',
+        partFallback: '零件',
+        faceCount: '{n} 面',
+        noFaces: '无面数据。',
+        noMeta: '暂无元数据。',
+        metaName: '名称',
+        metaSize: '尺寸',
+        metaUnit: '单位',
+        metaSource: '来源',
+        metaIntent: '意图',
+        ensuringGlb: '正在从 STEP 生成预览…',
+        axisOblique: '斜',
+        faceId: '面 #{id}',
+        faceType: '类型',
+        faceArea: '面积',
+        faceNormal: '法向',
+        faceCentroid: '质心',
+        faceTris: '三角形',
+        selectedFace: '已选中面 #{id}',
+        editDims: '编辑尺寸',
+        editApplyHint: '修改任一参数，点「应用」统一重建。',
+        paramMissingLinked: '选中面关联「{title}」，但该零件未参数化，可在对话里调整。',
+        paramMissing: '该零件未参数化，无法在预览中改尺寸。',
+        editing: '编辑 {title}',
+        editingParams: '编辑参数',
+        on: '开',
+        off: '关',
+        opening: '打开 {name}',
+        loaded: '已加载 {name}',
+        loadFail: '加载失败',
+        previewMissing: '无法预览：缺少 GLB，且无法从 STEP 生成。请先在对话里生成或导出。',
+        previewUnavailable: '预览不可用',
+        rebuilding: '正在重建几何…',
+        rebuildFail: '重建失败',
+        paramsUpdated: '参数已更新',
+        pickFaceToEdit: '点选面来改尺寸。',
+        secRunner: '流道',
+        runnerEmpty: '导入或生成零件后，可在此设分型、点面、提议并生成浇注系统。',
+        runnerParting: '分型',
+        runnerGates: '浇口数',
+        runnerPrefer: '偏好',
+        runnerPreferCost: '省料（A）',
+        runnerPreferFill: '充型（B）',
+        runnerPreferIntent: '指定面（C）',
+        runnerPickNone: '选面改尺寸',
+        runnerPickGate: '点面设浇口',
+        runnerPickKeep: '点面设禁区',
+        runnerSave: '保存意图',
+        runnerPropose: '提议',
+        runnerBuild: '生成流道',
+        runnerViewPart: '零件',
+        runnerViewShot: '浇注系统',
+        runnerViewMold: '型腔',
+        runnerMoldHint: '两半已拆开，分型面朝镜头。凹坑是型腔（零件负形），槽是流道。点面请切回「零件」。',
+        runnerMoldMissing: '还没有型腔预览。请先点「生成流道」。',
+        runnerShotMissing: '还没有浇注合件。请先点「生成流道」。',
+        runnerViewFail: '型腔预览加载失败',
+        runnerNoCand: '还没有候选。保存意图后点「提议」。',
+        runnerQa: '流道质检',
+        runnerBusy: '流道作业进行中…',
+        runnerSaved: '流道意图已保存',
+        runnerProposed: '已给出流道候选',
+        runnerBuilt: '已生成浇注系统',
+        runnerHintPick: '点选面上色：绿=浇口，红=禁区。再点一次取消。',
+        runnerShotHint: '正在看零件+流道合件。点面设浇口请切回「零件」视图。',
+        workTabsAria: '工作台',
+        workPart: '零件',
+        workRunner: '流道系统',
+        hintRunner: '流道工作台 · 点面设浇口/禁区 · 拖动旋转',
+        runnerStepCond: '1. 条件',
+        runnerStepPropose: '2. 提议',
+        runnerStepBuild: '3. 实例',
+        runnerStepCheck: '4. 核对',
+        runnerPickInspect: '查看',
+      },
+      en: {
+        crumbAria: 'Path',
+        partsAria: 'Part',
+        loading: 'Loading…',
+        hint: 'Click a face or parameter · drag to orbit',
+        viewAria: 'View',
+        viewIso: 'Iso',
+        viewFront: 'Front',
+        viewTop: 'Top',
+        viewRight: 'Right',
+        viewReset: 'Reset',
+        resizeSheet: 'Drag to resize the panel',
+        secAdvice: 'AI suggestions',
+        adviceEmpty: 'No actions right now. Failed checks appear here, export appears after QA passes.',
+        adviceNone: 'No actions right now.',
+        adviceLabel: 'suggestions',
+        adviceMode: 'rule-based',
+        geoOk: 'geometry OK',
+        needsWork: 'needs work',
+        runAdvice: 'Run',
+        runAdviceTitle: 'Send to chat and execute',
+        runAdviceFail: 'Could not send to the chat',
+        secParams: 'Parameters',
+        secFace: 'Selected face',
+        faceEmpty: 'Click a face in the 3D view.',
+        secEdit: 'Edit',
+        editEmpty: 'Select a face or parameter row to edit size.',
+        editKicker: 'Edit dimensions · multiple parameters',
+        apply: 'Apply',
+        cancel: 'Cancel',
+        secMeta: 'Metadata',
+        ready: 'Ready',
+        featLength: 'Length',
+        featLengthHint: 'Overall size along X',
+        featWidth: 'Width',
+        featWidthHint: 'Overall size along Y',
+        featHeight: 'Height',
+        featHeightHint: 'Overall size along Z',
+        featHole: 'Center hole diameter',
+        featHoleHint: 'Through-hole diameter',
+        featHoleShort: 'Hole',
+        expand: 'Expand',
+        treeEmpty: 'models/ is empty. Generated parts will appear here.',
+        noArtifact: 'No artifacts.',
+        noQa: 'No QA yet. Checks are recorded after generation.',
+        simView: 'view',
+        simFragment: 'reference looks like a drawing / multi-view',
+        simMissing: 'no reference image',
+        topoOk: 'Per-face topology ready ({n} faces pickable)',
+        topoMissing: 'No STEP topology sidecar (face/edge picking limited)',
+        partFallback: 'Part',
+        faceCount: '{n} faces',
+        noFaces: 'No face data.',
+        noMeta: 'No metadata.',
+        metaName: 'Name',
+        metaSize: 'Size',
+        metaUnit: 'Units',
+        metaSource: 'Source',
+        metaIntent: 'Intent',
+        ensuringGlb: 'Building preview from STEP…',
+        axisOblique: 'oblique',
+        faceId: 'Face #{id}',
+        faceType: 'Type',
+        faceArea: 'Area',
+        faceNormal: 'Normal',
+        faceCentroid: 'Centroid',
+        faceTris: 'Triangles',
+        selectedFace: 'Selected face #{id}',
+        editDims: 'Edit size',
+        editApplyHint: 'Change any parameter, then Apply to rebuild.',
+        paramMissingLinked: 'This face maps to “{title}”, but the part is not parameterized. Adjust it in chat.',
+        paramMissing: 'This part is not parameterized, so size cannot be edited here.',
+        editing: 'Editing {title}',
+        editingParams: 'Editing parameters',
+        on: 'On',
+        off: 'Off',
+        opening: 'Opening {name}',
+        loaded: 'Loaded {name}',
+        loadFail: 'Load failed',
+        previewMissing: 'Cannot preview: no GLB, and STEP could not be converted. Generate or export first.',
+        previewUnavailable: 'Preview unavailable',
+        rebuilding: 'Rebuilding geometry…',
+        rebuildFail: 'Rebuild failed',
+        paramsUpdated: 'Parameters updated',
+        pickFaceToEdit: 'Click a face to edit size.',
+        secRunner: 'Runner',
+        runnerEmpty: 'After the part exists, set parting, pick faces, propose, and build the gating system here.',
+        runnerParting: 'Parting',
+        runnerGates: 'Gates',
+        runnerPrefer: 'Prefer',
+        runnerPreferCost: 'Cost (A)',
+        runnerPreferFill: 'Fill (B)',
+        runnerPreferIntent: 'Picked faces (C)',
+        runnerPickNone: 'Pick to edit size',
+        runnerPickGate: 'Pick gate faces',
+        runnerPickKeep: 'Pick keepout',
+        runnerSave: 'Save intent',
+        runnerPropose: 'Propose',
+        runnerBuild: 'Build runner',
+        runnerViewPart: 'Part',
+        runnerViewShot: 'Gating',
+        runnerViewMold: 'Cavity',
+        runnerMoldHint: 'Die halves are split open, parting faces toward the camera. Pockets are the cavity, grooves are the runner. Switch to Part to pick faces.',
+        runnerMoldMissing: 'No cavity preview yet. Click Build runner first.',
+        runnerShotMissing: 'No gating shot yet. Click Build runner first.',
+        runnerViewFail: 'Failed to load the cavity preview',
+        runnerNoCand: 'No candidates yet. Save intent, then Propose.',
+        runnerQa: 'Runner QA',
+        runnerBusy: 'Runner job running…',
+        runnerSaved: 'Runner intent saved',
+        runnerProposed: 'Runner candidates ready',
+        runnerBuilt: 'Gating system built',
+        runnerHintPick: 'Click faces: green = gate, red = keepout. Click again to remove.',
+        runnerShotHint: 'Viewing part + runner. Switch to the Part view to pick gate faces.',
+        workTabsAria: 'Workbench',
+        workPart: 'Part',
+        workRunner: 'Gating',
+        hintRunner: 'Gating workbench · click faces for gates/keepouts · drag to orbit',
+        runnerStepCond: '1. Conditions',
+        runnerStepPropose: '2. Propose',
+        runnerStepBuild: '3. Build',
+        runnerStepCheck: '4. Review',
+        runnerPickInspect: 'Inspect',
+      },
+    }
+    let locale = 'zh'
+    function t(key, vars) {
+      let text = (I18N[locale] && I18N[locale][key]) || I18N.zh[key] || key
+      if (vars) {
+        Object.keys(vars).forEach((name) => {
+          text = text.split('{' + name + '}').join(String(vars[name]))
+        })
+      }
+      return text
+    }
+    function readLocale() {
+      try { return localStorage.getItem(LOCALE_KEY) === 'en' ? 'en' : 'zh' } catch { return 'zh' }
+    }
+    function refreshFeatureCopy() {
+      FEATURES.length.title = t('featLength')
+      FEATURES.length.hint = t('featLengthHint')
+      FEATURES.width.title = t('featWidth')
+      FEATURES.width.hint = t('featWidthHint')
+      FEATURES.height.title = t('featHeight')
+      FEATURES.height.hint = t('featHeightHint')
+      FEATURES.hole.title = t('featHole')
+      FEATURES.hole.hint = t('featHoleHint')
+      PARAM_LABELS.length = t('featLength')
+      PARAM_LABELS.width = t('featWidth')
+      PARAM_LABELS.height = t('featHeight')
+      PARAM_LABELS.hole_d = t('featHoleShort')
+    }
+    function applyStaticI18n() {
+      document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN'
+      document.querySelectorAll('[data-i18n]').forEach((el) => {
+        if (el.id === 'status' || el.id === 'statusbar') return
+        const key = el.getAttribute('data-i18n')
+        if (key) el.textContent = t(key)
+      })
+      document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+        el.title = t(el.getAttribute('data-i18n-title'))
+      })
+      document.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+        el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria')))
+      })
+    }
 
     const query = new URLSearchParams(location.search)
     const base = location.pathname.startsWith('/easycad') ? '/easycad' : ''
@@ -402,13 +788,24 @@
       const empty = document.getElementById('inspector-empty')
       const edit = document.getElementById('inspector-edit')
       if (floatBox && empty && edit) {
-        empty.textContent = '点选面来改尺寸。'
         floatBox.appendChild(empty)
         floatBox.appendChild(edit)
         floatBox.hidden = false
       }
     }
     if (query.get('panel') === '1') document.body.classList.add('panel')
+    const WORK_KEY = 'easycad:work-mode'
+    let storedWork = ''
+    try { storedWork = localStorage.getItem(WORK_KEY) || '' } catch {}
+    const initialWork = query.get('work') === 'runner' || storedWork === 'runner' ? 'runner' : 'part'
+    document.body.classList.add(initialWork === 'runner' ? 'work-runner' : 'work-part')
+    locale = readLocale()
+    refreshFeatureCopy()
+    applyStaticI18n()
+    if (document.body.classList.contains('bare')) {
+      const empty = document.getElementById('inspector-empty')
+      if (empty) empty.textContent = t('pickFaceToEdit')
+    }
 
     // Make the right inspection panel (sheet) resizable by dragging its left edge.
     const sheetEl = document.getElementById('sheet')
@@ -454,6 +851,7 @@
     }
 
     let name = query.get('name') || ''
+    let lastAdviceItems = []
     let lastStamp = 0
     let partsCatalog = []
     let fileTree = []
@@ -489,6 +887,12 @@
     let showGrid = false
     let envelope = null
     let faceTopology = null
+    let runnerState = { brief: null, candidates: [], selected: '', built: null, hasShot: false, hasMold: false, moldPreview: '' }
+    let runnerPick = initialWork === 'runner' ? 'gate' : ''
+    let runnerView = 'part'
+    let runnerMarks = []
+    let workMode = initialWork
+    syncWorkTabs()
     let facePickGroup = null
     let camera, controls, renderer, scene
     let partCenter = new THREE.Vector3()
@@ -499,17 +903,41 @@
     const down = { x: 0, y: 0, at: 0 }
 
     function setStatus(text, kind) {
-      statusbar.textContent = text || '就绪'
+      statusbar.textContent = text || t('ready')
       statusbar.dataset.kind = kind || ''
+      const hintEl = document.getElementById('hint')
+      if (kind === 'error') {
+        status.hidden = false
+        status.textContent = text || t('loadFail')
+        status.dataset.kind = 'error'
+        if (hintEl) {
+          hintEl.textContent = text || t('loadFail')
+          hintEl.dataset.kind = 'error'
+        }
+      } else {
+        if (status.dataset.kind === 'error') {
+          status.hidden = true
+          status.dataset.kind = ''
+        }
+        if (hintEl && hintEl.dataset.kind === 'error') {
+          hintEl.dataset.kind = ''
+          hintEl.textContent = workMode === 'runner'
+            ? (runnerView === 'mold' ? t('runnerMoldHint') : (runnerView === 'shot' ? t('runnerShotHint') : t('hintRunner')))
+            : t('hint')
+        }
+      }
     }
 
     function setLoading(text) {
       status.hidden = false
-      status.textContent = text || '加载中…'
+      status.textContent = text || t('loading')
+      status.dataset.kind = ''
     }
 
-    function clearLoading() {
+    function clearLoading(token) {
+      if (token != null && token !== loadingToken) return
       status.hidden = true
+      if (status.dataset.kind === 'error') status.dataset.kind = ''
     }
 
     function dimText() {
@@ -548,7 +976,7 @@
           const open = expandedDirs.has(node.path)
           return `<div class="tree-node">
             <div class="tree-row" style="padding-left:${6 + depth * 8}px">
-              <button type="button" class="tree-toggle" data-dir="${node.path}" aria-label="展开">${open ? '▾' : '▸'}</button>
+              <button type="button" class="tree-toggle" data-dir="${node.path}" aria-label="${t('expand')}">${open ? '▾' : '▸'}</button>
               <span class="tree-icon">📁</span>
               <span class="tree-label" data-kind="dir">${node.name}</span>
             </div>
@@ -568,7 +996,7 @@
 
     function renderFileTree() {
       if (!fileTree.length) {
-        fileTreeEl.innerHTML = '<div class="tree-empty">models/ 为空。生成零件后会出现在这里。</div>'
+        fileTreeEl.innerHTML = '<div class="tree-empty">' + t('treeEmpty') + '</div>'
         return
       }
       fileTreeEl.innerHTML = renderTreeNodes(fileTree)
@@ -609,13 +1037,16 @@
     function renderArtifacts() {
       // 产物只显示该零件实际存在的文件（优先 STEP B-rep，其次 GLB），隐藏源码/IR。
       const row = partsCatalog.find((item) => item.name === name)
-      if (row && row.hasStep) {
-        artifactsEl.innerHTML = `<a href="${base}/models/${name}.step" download>STEP · models/${name}.step</a>`
-      } else if (row && row.hasGlb) {
-        artifactsEl.innerHTML = `<a href="${base}/models/${name}.glb" download>GLB · models/${name}.glb</a>`
-      } else {
-        artifactsEl.innerHTML = '<div class="info-empty">无产物。</div>'
+      const links = []
+      if (row && row.hasStep) links.push(`<a href="${base}/models/${name}.step" download>STEP · models/${name}.step</a>`)
+      else if (row && row.hasGlb) links.push(`<a href="${base}/models/${name}.glb" download>GLB · models/${name}.glb</a>`)
+      if (runnerState.hasShot) {
+        links.push(`<a href="${base}/models/${name}.shot.step" download>SHOT · models/${name}.shot.step</a>`)
       }
+      if (runnerState.hasMold) {
+        links.push(`<a href="${base}/models/${name}.mold.step" download>MOLD · models/${name}.mold.step</a>`)
+      }
+      artifactsEl.innerHTML = links.length ? links.join('') : '<div class="info-empty">' + t('noArtifact') + '</div>'
     }
 
     function esc(s) {
@@ -635,13 +1066,14 @@
       let issues = 0
       if (qa && Array.isArray(qa.checks)) {
         for (const c of qa.checks) {
-          const ok = !c || c.pass !== false
+          if (!c || c.id === 'single_body' || c.kind === 'single_body') continue
+          const ok = c.pass !== false
           if (!ok) issues += 1
           const got = c.got_mm ? (Array.isArray(c.got_mm) ? c.got_mm.join('×') : c.got_mm) : ''
           items.push(`<div class="issue-row" data-kind="${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✕'} ${esc(c.id || c.kind || 'check')}${got ? ' · ' + esc(got) : ''}</div>`)
         }
       } else {
-        items.push('<div class="info-empty">暂无校验数据。生成零件后自动记录 QA。</div>')
+        items.push('<div class="info-empty">' + t('noQa') + '</div>')
       }
       // CAD vs reference-image similarity (advisory; never blocks geometry QA).
       const sim = await fetchJson(base + '/models/' + name + '.similarity.json')
@@ -649,14 +1081,14 @@
         const simOk = sim.pass !== false
         const frag = String(sim.note || '').indexOf('fragmented') !== -1
         const kind = frag ? 'warn' : (simOk ? 'ok' : 'bad')
-        items.push(`<div class="issue-row" data-kind="${kind}">${simOk ? '✓' : '✕'} image_similarity · ${Number(sim.score).toFixed(2)} (${esc(sim.grade)} · ${esc(sim.best_view)} 视图)${frag ? ' · 参考图为工程图/多视图' : ''}</div>`)
+        items.push(`<div class="issue-row" data-kind="${kind}">${simOk ? '✓' : '✕'} image_similarity · ${Number(sim.score).toFixed(2)} (${esc(sim.grade)} · ${esc(sim.best_view)} ${t('simView')})${frag ? ' · ' + t('simFragment') : ''}</div>`)
       } else if (sim) {
-        items.push('<div class="issue-row" data-kind="muted">— image_similarity · 未提供参考图</div>')
+        items.push('<div class="issue-row" data-kind="muted">— image_similarity · ' + t('simMissing') + '</div>')
       }
       if (faceTopology && Array.isArray(faceTopology.faces) && faceTopology.faces.length) {
-        items.push(`<div class="issue-row" data-kind="ok">✓ 逐面拓扑已生成（${faceTopology.faces.length} 个面可精确选中）</div>`)
+        items.push(`<div class="issue-row" data-kind="ok">✓ ${t('topoOk', { n: faceTopology.faces.length })}</div>`)
       } else {
-        items.push('<div class="issue-row" data-kind="warn">⚠ 无 STEP 拓扑 sidecar（曲面/边精度受限）</div>')
+        items.push('<div class="issue-row" data-kind="warn">⚠ ' + t('topoMissing') + '</div>')
       }
       box.innerHTML = items.join('')
       if (badge) {
@@ -674,7 +1106,7 @@
       const ir = await fetchJson(base + '/models/' + name + '.ir.json')
       // cad-viewer-style entity tree: part name (root) -> its B-rep faces (#id · type),
       // clicking a face row selects + highlights that face.
-      html += `<div class="tree-item tree-root">${esc(name || ir?.name || '零件')}${faces.length ? ` <span class="tree-count">${faces.length} 面</span>` : ''}</div>`
+      html += `<div class="tree-item tree-root">${esc(name || ir?.name || t('partFallback'))}${faces.length ? ` <span class="tree-count">${t('faceCount', { n: faces.length })}</span>` : ''}</div>`
       if (faces.length) {
         html += faces.map((fc) => {
           const active = selected === fc.id ? ' tree-active' : ''
@@ -683,7 +1115,7 @@
       } else if (ir && (ir.features || []).length) {
         html += (ir.features || []).map((f) => `<div class="tree-item tree-leaf">${esc(f.text || f.id || 'feature')}</div>`).join('')
       } else {
-        html += '<div class="info-empty">无面数据。</div>'
+        html += '<div class="info-empty">' + t('noFaces') + '</div>'
       }
       box.innerHTML = html
     }
@@ -692,27 +1124,41 @@
       const box = document.getElementById('metadata')
       if (!box) return
       const ir = await fetchJson(base + '/models/' + name + '.ir.json')
-      if (!ir) { box.innerHTML = '<div class="info-empty">暂无元数据。</div>'; return }
+      if (!ir) { box.innerHTML = '<div class="info-empty">' + t('noMeta') + '</div>'; return }
       const env = ir.envelope && ir.envelope.size_mm ? ir.envelope.size_mm.join(' × ') : '—'
       const step = (ir.trace && ir.trace.step) || '—'
       box.innerHTML =
-        `<div class="info-row"><span>名称</span><span class="info-val">${esc(ir.name)}</span></div>`
-        + `<div class="info-row"><span>尺寸</span><span class="info-val">${esc(env)} mm</span></div>`
-        + `<div class="info-row"><span>单位</span><span class="info-val">${esc(ir.units || 'mm')}</span></div>`
-        + `<div class="info-row"><span>来源</span><span class="info-val">${esc(step)}</span></div>`
-        + (ir.intent ? `<div class="info-row"><span>意图</span><span class="info-val">${esc(ir.intent)}</span></div>` : '')
+        `<div class="info-row"><span>${t('metaName')}</span><span class="info-val">${esc(ir.name)}</span></div>`
+        + `<div class="info-row"><span>${t('metaSize')}</span><span class="info-val">${esc(env)} mm</span></div>`
+        + `<div class="info-row"><span>${t('metaUnit')}</span><span class="info-val">${esc(ir.units || 'mm')}</span></div>`
+        + `<div class="info-row"><span>${t('metaSource')}</span><span class="info-val">${esc(step)}</span></div>`
+        + (ir.intent ? `<div class="info-row"><span>${t('metaIntent')}</span><span class="info-val">${esc(ir.intent)}</span></div>` : '')
     }
 
     async function renderAdvice() {
       const box = document.getElementById('advice')
       if (!box) return
       const advice = await fetchJson(base + '/models/' + name + '.advice.json')
-      if (!advice) { box.innerHTML = '<div class="info-empty">生成零件后自动生成 AI 建议。</div>'; return }
-      const sug = Array.isArray(advice.suggestions) ? advice.suggestions : []
-      if (!sug.length) { box.innerHTML = '<div class="info-empty">暂无建议。</div>'; return }
-      const ok = String(advice.summary || '') === 'GEOMETRY OK'
-      const head = `<div class="issue-row" data-kind="${ok ? 'ok' : 'warn'}">${ok ? '✓' : '⚠'} ${esc(advice.mode || 'AI')} 建议 · ${esc(advice.summary || '')}</div>`
-      box.innerHTML = head + sug.map((s) => `<div class="advice-item">• ${esc(s)}</div>`).join('')
+      const items = Array.isArray(advice && advice.items)
+        ? advice.items.filter((it) => it && it.executable && it.prompt)
+        : []
+      lastAdviceItems = items
+      if (!items.length) {
+        box.innerHTML = '<div class="info-empty">' + t('adviceEmpty') + '</div>'
+        return
+      }
+      const ok = String((advice && advice.summary) || '') === 'GEOMETRY OK'
+      const summary = ok ? t('geoOk') : (String(advice.summary || '') === 'NEEDS WORK' ? t('needsWork') : (advice.summary || ''))
+      const head = `<div class="issue-row" data-kind="${ok ? 'ok' : 'warn'}">${ok ? '✓' : '⚠'} ${t('adviceMode')} · ${esc(summary)}</div>`
+      const rows = items.map((it) => {
+        const kind = it.severity === 'error' ? 'bad' : (it.severity === 'ok' ? 'ok' : 'warn')
+        return `<div class="advice-row" data-kind="${kind}">`
+          + `<div class="advice-copy"><div class="advice-title">${esc(it.title || '')}</div>`
+          + `<div class="advice-text">${esc(it.text || '')}</div></div>`
+          + `<button type="button" class="advice-run" data-advice-id="${esc(it.id)}" title="${esc(t('runAdviceTitle'))}">${esc(t('runAdvice'))}</button>`
+          + `</div>`
+      }).join('')
+      box.innerHTML = head + rows
     }
 
     async function resolveInitialPart() {
@@ -751,7 +1197,7 @@
       // it when it is large enough to hold a real mesh.
       if (probe.ok && Number(probe.headers.get('content-length') || 0) >= 1024) return glbPath
       if (!row || (!row.hasScript && !row.hasStep)) return null
-      setLoading('正在从 STEP 生成预览…')
+      setLoading(t('ensuringGlb'))
       const res = await fetch(base + '/ensure-glb?name=' + encodeURIComponent(name), { cache: 'no-store' })
       const data = res.ok ? await res.json() : {}
       if (data.ok !== false && data.artifacts && data.artifacts.glb) {
@@ -926,7 +1372,7 @@
       if (!rec) return null
       const nrm = rec.normal
       const ax = Math.abs(nrm.x), ay = Math.abs(nrm.y), az = Math.abs(nrm.z)
-      let axis = '斜'
+      let axis = t('axisOblique')
       if (ax >= ay && ax >= az) axis = (nrm.x >= 0 ? '+X' : '-X')
       else if (ay >= ax && ay >= az) axis = (nrm.y >= 0 ? '+Y' : '-Y')
       else if (az >= ax && az >= ay) axis = (nrm.z >= 0 ? '+Z' : '-Z')
@@ -941,25 +1387,27 @@
     }
 
     function renderFaceInfo() {
-      const box = document.getElementById('face-info')
-      if (!box) return
-      if (selected === null || !faceClusters[selected]) {
-        box.innerHTML = '<div class="info-empty">在 3D 视图中点选一个面。</div>'
-        return
-      }
-      const info = faceInfo(selected)
-      const f = (v) => Number(v).toFixed(2)
-      const topo = (faceTopology && faceTopology.faces && faceTopology.faces[selected]) ? faceTopology.faces[selected] : null
-      const typeRow = topo
-        ? '<div class="info-row"><span>类型</span><span class="info-val">' + esc(topo.type) + '</span></div>'
-        : ''
-      box.innerHTML =
-        '<div class="info-row"><span>面 #' + info.id + '</span><span class="info-val">' + info.axis + '</span></div>'
-        + typeRow
-        + '<div class="info-row"><span>面积</span><span class="info-val">' + f(info.area) + ' mm²</span></div>'
-        + '<div class="info-row"><span>法向</span><span class="info-val">(' + info.normal.map(f).join(', ') + ')</span></div>'
-        + '<div class="info-row"><span>质心</span><span class="info-val">(' + info.centroid.map(f).join(', ') + ')</span></div>'
-        + '<div class="info-row"><span>三角形</span><span class="info-val">' + info.count + '</span></div>'
+      const html = (() => {
+        if (selected === null || !faceClusters[selected]) {
+          return '<div class="info-empty">' + t('faceEmpty') + '</div>'
+        }
+        const info = faceInfo(selected)
+        const f = (v) => Number(v).toFixed(2)
+        const topo = (faceTopology && faceTopology.faces && faceTopology.faces[selected]) ? faceTopology.faces[selected] : null
+        const typeRow = topo
+          ? '<div class="info-row"><span>' + t('faceType') + '</span><span class="info-val">' + esc(topo.type) + '</span></div>'
+          : ''
+        return '<div class="info-row"><span>' + t('faceId', { id: info.id }) + '</span><span class="info-val">' + info.axis + '</span></div>'
+          + typeRow
+          + '<div class="info-row"><span>' + t('faceArea') + '</span><span class="info-val">' + f(info.area) + ' mm²</span></div>'
+          + '<div class="info-row"><span>' + t('faceNormal') + '</span><span class="info-val">(' + info.normal.map(f).join(', ') + ')</span></div>'
+          + '<div class="info-row"><span>' + t('faceCentroid') + '</span><span class="info-val">(' + info.centroid.map(f).join(', ') + ')</span></div>'
+          + '<div class="info-row"><span>' + t('faceTris') + '</span><span class="info-val">' + info.count + '</span></div>'
+      })()
+      const partBox = document.getElementById('face-info')
+      const runnerBox = document.getElementById('runner-face')
+      if (partBox) partBox.innerHTML = html
+      if (runnerBox) runnerBox.innerHTML = html
     }
 
     function selectFace(faceId) {
@@ -967,12 +1415,23 @@
         clearSelect()
         return
       }
+      if (workMode === 'runner') {
+        if (runnerPick && runnerPick !== 'inspect' && runnerView === 'part') {
+          toggleRunnerFace(faceId)
+        }
+        selected = faceId
+        highlight = showFace(highlight, faceId, 0x2563eb, 0.18)
+        renderFaceInfo()
+        renderTree()
+        setStatus(t('selectedFace', { id: faceId }), 'ok')
+        return
+      }
       selected = faceId
       highlight = showFace(highlight, faceId, 0x2563eb, 0.32)
       renderFaceInfo()
       renderTree()
       selectFaceFeatureLink(faceId)
-      setStatus('已选中面 #' + faceId, 'ok')
+      setStatus(t('selectedFace', { id: faceId }), 'ok')
     }
 
     // Field factory: one number input per editable param, so a single Edit card
@@ -1014,16 +1473,16 @@
         inspectorEmpty.hidden = false
         inspectorEdit.hidden = true
         inspectorEmpty.textContent = spec
-          ? ('选中面关联「' + spec.title + '」，但该零件未参数化；可在对话里用 easycad_gen / easycad_apply 调整。')
-          : '该零件未参数化，无法在预览中改尺寸。'
+          ? t('paramMissingLinked', { title: spec.title })
+          : t('paramMissing')
         return
       }
-      document.getElementById('card-title').textContent = spec ? spec.title : '编辑尺寸'
-      document.getElementById('card-hint').textContent = spec ? spec.hint : '修改任一参数，点「应用」统一重建。'
+      document.getElementById('card-title').textContent = spec ? spec.title : t('editDims')
+      document.getElementById('card-hint').textContent = spec ? spec.hint : t('editApplyHint')
       inspectorEmpty.hidden = true
       inspectorEdit.hidden = false
       renderBatchFields(spec && allParams[spec.id] != null ? feature : null)
-      setStatus(spec ? '编辑 ' + spec.title : '编辑参数', '')
+      setStatus(spec ? t('editing', { title: spec.title }) : t('editingParams'), '')
     }
 
     function clearSelect() {
@@ -1035,7 +1494,7 @@
       inspectorEdit.hidden = true
       renderParamList()
       renderFaceInfo()
-      setStatus('就绪', '')
+      setStatus(t('ready'), '')
       renderTree()
     }
 
@@ -1077,12 +1536,12 @@
       if (edgeBtn) {
         edgeBtn.dataset.active = String(showEdges)
         const val = edgeBtn.querySelector('.param-value')
-        if (val) val.textContent = showEdges ? '开' : '关'
+        if (val) val.textContent = showEdges ? t('on') : t('off')
       }
       if (gridBtn) {
         gridBtn.dataset.active = String(showGrid)
         const val = gridBtn.querySelector('.param-value')
-        if (val) val.textContent = showGrid ? '开' : '关'
+        if (val) val.textContent = showGrid ? t('on') : t('off')
       }
     }
 
@@ -1160,8 +1619,8 @@
 
     function setView(preset) {
       if (!modelRoot || !camera) return
-      // glTF/three.js is Y-up (build123d Z-up is rotated to +Y by export_gltf),
-      // so the axis-aligned views must use the Y-up axes.
+      // trimesh GLB keeps build123d Z-up; three.js camera is Y-up, so these
+      // presets are world-axis looks, not CAD "top of the part".
       const offsets = {
         iso: new THREE.Vector3(1, 1, 1),
         front: new THREE.Vector3(0, 0, 1),
@@ -1175,6 +1634,38 @@
       document.querySelectorAll('[data-view]').forEach((btn) => {
         btn.dataset.active = btn.dataset.view === preset ? 'true' : 'false'
       })
+      const moldBtn = document.getElementById('view-mold')
+      if (moldBtn) moldBtn.dataset.active = 'false'
+    }
+
+    function moldOrbitTarget(object) {
+      const box = new THREE.Box3().setFromObject(object)
+      const mid = box.getCenter(new THREE.Vector3())
+      // Two plates on XY, open faces toward +Z. Pivot in the gap, on the
+      // parting faces — not the steel volume centroid.
+      mid.z = box.max.z
+      return mid
+    }
+
+    function setMoldCamera() {
+      if (!modelRoot || !camera) return
+      partCenter.copy(moldOrbitTarget(modelRoot))
+      const off = new THREE.Vector3(0.22, 0.5, 1).normalize()
+      controls.target.copy(partCenter)
+      camera.position.copy(partCenter).add(off.multiplyScalar(viewDistance * 0.95))
+      controls.update()
+      document.querySelectorAll('[data-view]').forEach((btn) => {
+        btn.dataset.active = 'false'
+      })
+      const moldBtn = document.getElementById('view-mold')
+      if (moldBtn) moldBtn.dataset.active = 'true'
+    }
+
+    function syncMoldButton() {
+      const moldBtn = document.getElementById('view-mold')
+      if (!moldBtn) return
+      moldBtn.hidden = workMode !== 'runner'
+      moldBtn.dataset.active = runnerView === 'mold' ? 'true' : 'false'
     }
 
     function ensureScene() {
@@ -1248,7 +1739,364 @@
       tick()
     }
 
-    async function loadGlb(token, glbPath, keepView = false) {
+    function runnerBrief() {
+      return (runnerState && runnerState.brief) || {
+        parting_dir: '+Z',
+        gate_count: [1, 2],
+        keepout_face_ids: [],
+        gate_face_ids: [],
+        prefer: 'fill_quality',
+      }
+    }
+
+    function clearRunnerMarks() {
+      for (const mesh of runnerMarks) {
+        if (mesh && mesh.parent) mesh.parent.remove(mesh)
+      }
+      runnerMarks = []
+    }
+
+    function paintRunnerMarks() {
+      clearRunnerMarks()
+      if (workMode !== 'runner' || runnerView !== 'part' || !faceClusters.length) return
+      const brief = runnerBrief()
+      const keep = new Set(brief.keepout_face_ids || [])
+      const cand = (runnerState.candidates || []).find((c) => c.id === runnerState.selected)
+      const gates = new Set([...(brief.gate_face_ids || []), ...((cand && cand.gate_face_ids) || [])])
+      for (const fid of gates) {
+        const mesh = showFace(null, fid, 0x16a34a, 0.28)
+        if (mesh) runnerMarks.push(mesh)
+      }
+      for (const fid of keep) {
+        const mesh = showFace(null, fid, 0xdc2626, 0.26)
+        if (mesh) runnerMarks.push(mesh)
+      }
+    }
+
+    function persistWorkMode() {
+      const url = new URL(location.href)
+      if (workMode === 'runner') url.searchParams.set('work', 'runner')
+      else url.searchParams.delete('work')
+      history.replaceState(null, '', url)
+      try { localStorage.setItem(WORK_KEY, workMode) } catch {}
+    }
+
+    function syncWorkTabs() {
+      document.body.classList.toggle('work-runner', workMode === 'runner')
+      document.body.classList.toggle('work-part', workMode === 'part')
+      document.querySelectorAll('.sheet-tabs [data-work]').forEach((btn) => {
+        btn.dataset.active = btn.dataset.work === workMode ? 'true' : 'false'
+      })
+      const hintEl = document.getElementById('hint')
+      if (hintEl && hintEl.dataset.kind !== 'error') {
+        hintEl.textContent = workMode === 'runner'
+          ? (runnerView === 'mold' ? t('runnerMoldHint') : (runnerView === 'shot' ? t('runnerShotHint') : t('hintRunner')))
+          : t('hint')
+      }
+      syncMoldButton()
+    }
+
+    async function setWorkMode(next) {
+      const mode = next === 'runner' ? 'runner' : 'part'
+      const prev = workMode
+      workMode = mode
+      persistWorkMode()
+      syncWorkTabs()
+      if (mode === 'runner') {
+        if (!runnerPick || runnerPick === '') runnerPick = 'gate'
+        await loadRunner()
+        if (prev !== 'runner' && (runnerState.hasMold || runnerState.hasShot)) {
+          await setRunnerView(runnerState.hasMold ? 'mold' : 'shot')
+        } else {
+          renderRunnerPanel()
+          paintRunnerMarks()
+        }
+      } else {
+        runnerPick = ''
+        if (prev === 'runner' && runnerView !== 'part') await setRunnerView('part')
+        else {
+          paintRunnerMarks()
+          clearSelect()
+        }
+      }
+    }
+
+    function toggleRunnerFace(fid) {
+      const brief = { ...runnerBrief() }
+      const key = runnerPick === 'keepout' ? 'keepout_face_ids' : 'gate_face_ids'
+      const other = key === 'gate_face_ids' ? 'keepout_face_ids' : 'gate_face_ids'
+      const list = (brief[key] || []).filter((n) => Number.isFinite(n))
+      const idx = list.indexOf(fid)
+      if (idx >= 0) list.splice(idx, 1)
+      else list.push(fid)
+      brief[key] = [...new Set(list)].sort((a, b) => a - b)
+      brief[other] = (brief[other] || []).filter((id) => id !== fid)
+      runnerState.brief = brief
+      paintRunnerMarks()
+      renderRunnerPanel()
+      setStatus(t('runnerHintPick'), 'ok')
+    }
+
+    function renderRunnerPanel() {
+      const box = document.getElementById('runner-panel')
+      if (!box) return
+      const brief = runnerBrief()
+      const counts = Array.isArray(brief.gate_count) && brief.gate_count.length >= 2
+        ? brief.gate_count : [1, 2]
+      const cands = runnerState.candidates || []
+      const selected = runnerState.selected || ''
+      const qa = (runnerState.built && runnerState.built.qa) || null
+      const gates = brief.gate_face_ids || []
+      const keep = brief.keepout_face_ids || []
+      const candHtml = cands.length
+        ? cands.map((c) => {
+          const active = c.id === selected ? ' data-active="true"' : ''
+          const faces = (c.gate_face_ids || []).map((id) => `#${id}`).join(' ')
+          const p = c.params || {}
+          return `<button type="button" class="runner-card" data-kind="cand" data-cand="${esc(c.id)}"${active}>`
+            + `<div class="runner-card-id">${esc(c.id)} · ${esc(c.prefer || '')}</div>`
+            + `<div class="runner-card-why">${esc(c.rationale || '')}</div>`
+            + `<div class="runner-card-meta">${faces || '—'} · in ${esc(p.runner_in ?? '—')} / out ${esc(p.runner_out ?? '—')}</div>`
+            + `</button>`
+        }).join('')
+        : `<div class="runner-note">${t('runnerNoCand')}</div>`
+      const qaHtml = qa && Array.isArray(qa.checks)
+        ? qa.checks.map((c) => `<div class="issue-row" data-kind="${c.advisory ? 'warn' : (c.pass ? 'ok' : 'bad')}">${c.pass ? '✓' : '×'} ${esc(c.message || c.id)}</div>`).join('')
+        : ''
+      const params = (cands.find((c) => c.id === selected) || {}).params || (runnerState.built && runnerState.built.params) || {}
+      const paramKeys = ['gate_width', 'gate_thick', 'runner_in', 'runner_out', 'biscuit_d']
+      const paramHtml = paramKeys.some((k) => params[k] != null)
+        ? paramKeys.filter((k) => params[k] != null).map((k) => (
+          `<div class="runner-field"><label>${esc(k)}</label><input type="number" min="0.1" step="0.1" data-runner-param="${k}" value="${Number(params[k])}" /></div>`
+        )).join('')
+        : ''
+      const pick = runnerPick || 'gate'
+      box.innerHTML =
+        `<div class="runner-step-h">${t('runnerStepCond')}</div>`
+        + `<div class="runner-field"><label>${t('runnerParting')}</label>`
+        + `<select id="runner-parting">${['+X', '-X', '+Y', '-Y', '+Z', '-Z'].map((d) =>
+          `<option value="${d}"${brief.parting_dir === d ? ' selected' : ''}>${d}</option>`).join('')}</select></div>`
+        + `<div class="runner-field"><label>${t('runnerGates')}</label>`
+        + `<input type="number" id="runner-gate-lo" min="1" max="6" step="1" value="${counts[0]}" />`
+        + `<span class="unit">–</span>`
+        + `<input type="number" id="runner-gate-hi" min="1" max="6" step="1" value="${counts[1]}" /></div>`
+        + `<div class="runner-field"><label>${t('runnerPrefer')}</label>`
+        + `<select id="runner-prefer">`
+        + `<option value="cost"${brief.prefer === 'cost' ? ' selected' : ''}>${t('runnerPreferCost')}</option>`
+        + `<option value="fill_quality"${brief.prefer !== 'cost' && brief.prefer !== 'intent' ? ' selected' : ''}>${t('runnerPreferFill')}</option>`
+        + `<option value="intent"${brief.prefer === 'intent' ? ' selected' : ''}>${t('runnerPreferIntent')}</option>`
+        + `</select></div>`
+        + `<div class="pick-modes">`
+        + `<button type="button" class="ghost" data-runner-pick="inspect"${pick === 'inspect' ? ' data-active="true"' : ''}>${t('runnerPickInspect')}</button>`
+        + `<button type="button" class="ghost" data-runner-pick="gate"${pick === 'gate' ? ' data-active="true"' : ''}>${t('runnerPickGate')}</button>`
+        + `<button type="button" class="ghost" data-runner-pick="keepout"${pick === 'keepout' ? ' data-active="true"' : ''}>${t('runnerPickKeep')}</button>`
+        + `</div>`
+        + `<div class="runner-chips">${
+          gates.map((id) => `<button type="button" class="runner-chip" data-kind="gate" data-face="${id}">#${id}</button>`).join('')
+          + keep.map((id) => `<button type="button" class="runner-chip" data-kind="keepout" data-face="${id}">#${id}</button>`).join('')
+        }</div>`
+        + `<div class="runner-note">${
+          runnerView === 'mold' ? t('runnerMoldHint') : (runnerView === 'shot' ? t('runnerShotHint') : t('runnerHintPick'))
+        }</div>`
+        + `<div class="runner-actions">`
+        + `<button type="button" class="ghost" data-runner-act="save">${t('runnerSave')}</button>`
+        + `</div>`
+        + `<div class="runner-step-h">${t('runnerStepPropose')}</div>`
+        + candHtml
+        + `<div class="runner-actions">`
+        + `<button type="button" class="ghost" data-runner-act="propose">${t('runnerPropose')}</button>`
+        + `</div>`
+        + `<div class="runner-step-h">${t('runnerStepBuild')}</div>`
+        + paramHtml
+        + `<div class="runner-actions">`
+        + `<button type="button" class="primary" data-runner-act="build">${t('runnerBuild')}</button>`
+        + `</div>`
+        + `<div class="runner-step-h">${t('runnerStepCheck')}</div>`
+        + `<div class="runner-actions">`
+        + `<button type="button" class="ghost" data-runner-view="part"${runnerView === 'part' ? ' data-active="true"' : ''}>${t('runnerViewPart')}</button>`
+        + `<button type="button" class="ghost" data-runner-view="shot"${runnerView === 'shot' ? ' data-active="true"' : ''}>${t('runnerViewShot')}</button>`
+        + `<button type="button" class="ghost" data-runner-view="mold"${runnerView === 'mold' ? ' data-active="true"' : ''}>${t('runnerViewMold')}</button>`
+        + `</div>`
+        + (qaHtml || `<div class="runner-note">${t('runnerQa')} —</div>`)
+    }
+
+    function readRunnerForm() {
+      const brief = { ...runnerBrief() }
+      const parting = document.getElementById('runner-parting')
+      const lo = document.getElementById('runner-gate-lo')
+      const hi = document.getElementById('runner-gate-hi')
+      const prefer = document.getElementById('runner-prefer')
+      if (parting) brief.parting_dir = parting.value
+      if (lo && hi) {
+        let a = Math.max(1, Number(lo.value) || 1)
+        let b = Math.max(a, Number(hi.value) || a)
+        brief.gate_count = [a, Math.min(6, b)]
+      }
+      if (prefer) brief.prefer = prefer.value
+      return brief
+    }
+
+    async function postRunner(payload) {
+      const res = await fetch(base + '/runner', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, ...payload }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.ok === false) throw new Error(data.error || t('rebuildFail'))
+      return data
+    }
+
+    async function probeGlb(rel) {
+      try {
+        const url = modelUrl(rel)
+        let res = await fetch(url, { method: 'HEAD', cache: 'no-store' })
+        if (!res.ok || !res.headers.get('content-length')) {
+          res = await fetch(url, { method: 'GET', cache: 'no-store' })
+        }
+        return res.ok && Number(res.headers.get('content-length') || 0) >= 1024
+      } catch {
+        return false
+      }
+    }
+
+    async function loadRunner() {
+      const data = await fetchJson(base + '/runner?name=' + encodeURIComponent(name))
+      const [hasShot, hasMold] = await Promise.all([
+        probeGlb(`${name}.shot.glb`),
+        probeGlb(`${name}.mold.glb`),
+      ])
+      if (!data || data.ok === false) {
+        runnerState = { brief: null, candidates: [], selected: '', built: null, hasShot, hasMold, moldPreview: '' }
+      } else {
+        runnerState = {
+          brief: data.brief || null,
+          candidates: data.candidates || [],
+          selected: data.selected || '',
+          built: data.built || null,
+          hasShot: Boolean(data.hasShot) || hasShot,
+          hasMold: Boolean(data.hasMold) || hasMold,
+          moldPreview: data.mold_preview || '',
+        }
+      }
+      renderRunnerPanel()
+      paintRunnerMarks()
+    }
+
+    async function setRunnerView(next, token) {
+      const mine = token || ++loadingToken
+      if (next === 'mold') {
+        if (!runnerState.hasMold || runnerState.moldPreview !== 'split-open-5') {
+          setLoading(t('runnerBusy'))
+          try {
+            await postRunner({ cmd: 'mold' })
+            if (mine !== loadingToken) return
+            await loadRunner()
+          } catch (err) {
+            if (mine !== loadingToken) return
+            setStatus(err.message || String(err), 'error')
+            renderRunnerPanel()
+            return
+          }
+        }
+        if (!runnerState.hasMold) {
+          setStatus(t('runnerMoldMissing'), 'error')
+          return
+        }
+        runnerView = 'mold'
+      } else if (next === 'shot') {
+        if (!runnerState.hasShot) {
+          setStatus(t('runnerShotMissing'), 'error')
+          return
+        }
+        runnerView = 'shot'
+      } else {
+        runnerView = 'part'
+      }
+      renderRunnerPanel()
+      const glbPath = runnerView === 'mold'
+        ? `${name}.mold.glb`
+        : (runnerView === 'shot' ? `${name}.shot.glb` : await ensureGlb())
+      if (mine !== loadingToken) return
+      if (!glbPath) {
+        clearLoading(mine)
+        return
+      }
+      const ok = await loadGlb(mine, glbPath, runnerView === 'part', {
+        fallback: runnerView === 'part',
+        view: runnerView,
+      })
+      if (mine !== loadingToken) return
+      if (!ok && runnerView !== 'part') {
+        setStatus(t('runnerViewFail'), 'error')
+        return
+      }
+      if (runnerView === 'part') {
+        faceTopology = await fetchJson(base + '/models/' + name + '.topology.json')
+      }
+      clearLoading(mine)
+      syncMoldButton()
+      paintRunnerMarks()
+    }
+
+    async function runRunnerAction(act) {
+      setStatus(t('runnerBusy'), '')
+      try {
+        if (act === 'save') {
+          const brief = readRunnerForm()
+          runnerState.brief = brief
+          const data = await postRunner({ cmd: 'brief', ...brief })
+          runnerState.brief = data.brief || brief
+          setStatus(t('runnerSaved'), data.ok === false ? 'error' : 'ok')
+        } else if (act === 'propose') {
+          const brief = readRunnerForm()
+          runnerState.brief = brief
+          await postRunner({ cmd: 'brief', ...brief })
+          const data = await postRunner({ cmd: 'propose' })
+          runnerState.candidates = data.candidates || []
+          runnerState.selected = data.selected || ''
+          setStatus(t('runnerProposed'), 'ok')
+        } else if (act === 'build') {
+          const brief = readRunnerForm()
+          runnerState.brief = brief
+          await postRunner({ cmd: 'brief', ...brief })
+          if (!(runnerState.candidates || []).length) {
+            const proposed = await postRunner({ cmd: 'propose' })
+            runnerState.candidates = proposed.candidates || []
+            runnerState.selected = proposed.selected || runnerState.selected
+          }
+          const params = {}
+          document.querySelectorAll('[data-runner-param]').forEach((input) => {
+            const n = Number(input.value)
+            if (Number.isFinite(n)) params[input.dataset.runnerParam] = n
+          })
+          let data
+          if (Object.keys(params).length) {
+            data = await postRunner({ cmd: 'apply', params: { ...params, candidate: runnerState.selected } })
+          } else {
+            data = await postRunner({ cmd: 'build', candidate: runnerState.selected })
+          }
+          runnerState.hasShot = true
+          runnerState.built = {
+            candidate: data.selected,
+            params: (data.candidate && data.candidate.params) || params,
+            qa: data.qa,
+          }
+          if (data.selected) runnerState.selected = data.selected
+          setStatus(t('runnerBuilt'), data.qa && data.qa.pass === false ? 'error' : 'ok')
+          await loadRunner()
+          await setRunnerView(runnerState.hasMold ? 'mold' : 'shot')
+          return
+        }
+        renderRunnerPanel()
+        paintRunnerMarks()
+      } catch (err) {
+        setStatus(err.message || String(err), 'error')
+        renderRunnerPanel()
+      }
+    }
+
+    async function loadGlb(token, glbPath, keepView = false, opts = {}) {
       ensureScene()
       if (modelRoot) { scene.remove(modelRoot) }
       if (highlight) { scene.remove(highlight); highlight = null }
@@ -1258,6 +2106,7 @@
       try {
         gltf = await new GLTFLoader().loadAsync(modelUrl(path) + '?t=' + Date.now())
       } catch (err) {
+        if (opts.fallback === false) return false
         // A broken or absent GLB: ask the host to rebuild it, then retry once.
         const regenerated = await ensureGlb()
         if (token !== loadingToken || !regenerated) return false
@@ -1267,13 +2116,23 @@
       if (token !== loadingToken) return false
       modelRoot = gltf.scene
       scene.add(modelRoot)
-      if (!keepView) { fitCamera(modelRoot); setView('iso') }
+      if (!keepView) {
+        fitCamera(modelRoot)
+        if (opts.view === 'mold') {
+          showEdges = true
+          setMoldCamera()
+        } else {
+          setView('iso')
+        }
+      }
       selected = null
       featureSel = null
       buildEdgeLines()
       syncModelAndClusters()
       syncDisplayToggles()
       renderFaceInfo()
+      paintRunnerMarks()
+      clearLoading(token)
       return true
     }
 
@@ -1288,39 +2147,56 @@
       renderArtifacts()
       syncChrome()
       faceTopology = await fetchJson(base + '/models/' + name + '.topology.json')
+      await loadRunner()
       await Promise.all([renderIssues(), renderTree(), renderMetadata(), renderAdvice()])
     }
 
     async function showPart(next, stamp) {
       if (!next || next === name && stamp === lastStamp && modelRoot) return
+      const switching = next !== name
       const token = ++loadingToken
       name = next
       if (stamp) lastStamp = stamp
       const url = new URL(location.href)
       url.searchParams.set('name', name)
+      if (workMode === 'runner') url.searchParams.set('work', 'runner')
+      else url.searchParams.delete('work')
       history.replaceState(null, '', url)
       clearSelect()
+      if (switching) {
+        runnerPick = workMode === 'runner' ? 'gate' : ''
+        runnerView = 'part'
+      }
       syncChrome()
-      setLoading('加载中…')
-      setStatus(`打开 ${name}`, '')
+      const keepMesh = Boolean(modelRoot) && !switching
+      if (!keepMesh) setLoading(t('loading'))
+      setStatus(t('opening', { name }), '')
       try {
         await loadParams()
         if (token !== loadingToken) return
-        const glbPath = await ensureGlb()
+        if (workMode === 'runner' && (switching || !modelRoot) && runnerView === 'part') {
+          if (runnerState.hasMold) runnerView = 'mold'
+          else if (runnerState.hasShot) runnerView = 'shot'
+        }
+        const glbPath = (workMode === 'runner' && runnerView === 'mold' && runnerState.hasMold)
+          ? `${name}.mold.glb`
+          : ((workMode === 'runner' && runnerView === 'shot' && runnerState.hasShot)
+            ? `${name}.shot.glb`
+            : await ensureGlb())
         if (token !== loadingToken) return
         if (!glbPath) {
-          setLoading('无法预览：缺少 GLB，且无法从 STEP 生成。请先在对话里 easycad_gen / easycad_export。')
-          setStatus('预览不可用', 'error')
+          setLoading(t('previewMissing'))
+          setStatus(t('previewUnavailable'), 'error')
           return
         }
-        await loadGlb(token, glbPath)
+        await loadGlb(token, glbPath, keepMesh, { view: runnerView })
         if (token !== loadingToken) return
-        clearLoading()
-        setStatus(`已加载 ${name}`, 'ok')
+        clearLoading(token)
+        setStatus(t('loaded', { name }), 'ok')
       } catch (err) {
         if (token !== loadingToken) return
         setLoading(err.message || String(err))
-        setStatus('加载失败', 'error')
+        setStatus(t('loadFail'), 'error')
       }
     }
 
@@ -1348,6 +2224,10 @@
         const latest = latestRes.ok ? await latestRes.json() : {}
         const stamp = Number(latest.updatedAt) || 0
         if (latest.name && stamp && stamp !== lastStamp) {
+          // In the dsh pane the parent iframe owns navigation. Reloading a
+          // different stem here races the user click and leaves 加载中 up.
+          const paneLocked = document.body.classList.contains('panel') || document.body.classList.contains('embed')
+          if (paneLocked && latest.name !== name) return
           await showPart(latest.name, stamp)
         }
       } catch (err) {}
@@ -1381,12 +2261,79 @@
       if (Number.isFinite(fid)) selectFace(fid)
     })
 
+    const workTabs = document.querySelector('.sheet-tabs')
+    if (workTabs) workTabs.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-work]')
+      if (!btn) return
+      void setWorkMode(btn.getAttribute('data-work'))
+    })
+
+    const runnerBox = document.getElementById('runner-panel')
+    if (runnerBox) runnerBox.addEventListener('click', (event) => {
+      const pickBtn = event.target.closest('[data-runner-pick]')
+      if (pickBtn) {
+        runnerPick = pickBtn.getAttribute('data-runner-pick') || 'inspect'
+        if ((runnerPick === 'gate' || runnerPick === 'keepout') && runnerView !== 'part') {
+          void setRunnerView('part')
+        } else renderRunnerPanel()
+        return
+      }
+      const viewBtn = event.target.closest('[data-runner-view]')
+      if (viewBtn) {
+        event.preventDefault()
+        void setRunnerView(viewBtn.getAttribute('data-runner-view'))
+        return
+      }
+      const candBtn = event.target.closest('[data-cand]')
+      if (candBtn) {
+        runnerState.selected = candBtn.getAttribute('data-cand') || ''
+        renderRunnerPanel()
+        paintRunnerMarks()
+        return
+      }
+      const faceChip = event.target.closest('.runner-chip[data-face]')
+      if (faceChip) {
+        const fid = Number(faceChip.getAttribute('data-face'))
+        if (Number.isFinite(fid)) {
+          runnerPick = faceChip.getAttribute('data-kind') === 'keepout' ? 'keepout' : 'gate'
+          toggleRunnerFace(fid)
+        }
+        return
+      }
+      const act = event.target.closest('[data-runner-act]')
+      if (act) void runRunnerAction(act.getAttribute('data-runner-act'))
+    })
+
+    const adviceBox = document.getElementById('advice')
+    if (adviceBox) adviceBox.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-advice-id]')
+      if (!btn) return
+      const item = lastAdviceItems.find((it) => it && it.id === btn.getAttribute('data-advice-id'))
+      if (!item || !item.prompt) return
+      btn.disabled = true
+      try {
+        window.parent.postMessage({
+          type: 'easycad:run-advice',
+          name,
+          id: item.id,
+          title: item.title,
+          prompt: item.prompt,
+        }, '*')
+      } catch {}
+      setTimeout(() => { btn.disabled = false }, 1200)
+    })
+
     document.querySelectorAll('[data-view]').forEach((btn) => {
       btn.addEventListener('click', () => setView(btn.dataset.view))
     })
     document.getElementById('reset-view').addEventListener('click', () => {
       if (modelRoot) fitCamera(modelRoot)
-      setView('iso')
+      if (runnerView === 'mold') setMoldCamera()
+      else setView('iso')
+    })
+    const viewMoldBtn = document.getElementById('view-mold')
+    if (viewMoldBtn) viewMoldBtn.addEventListener('click', () => {
+      void setWorkMode('runner').then(() => setRunnerView('mold'))
     })
 
     let scaleTimer = 0
@@ -1428,7 +2375,7 @@
       })
       if (!touched) return
       applyBtn.disabled = true
-      setStatus('正在重建几何…', '')
+      setStatus(t('rebuilding'), '')
       try {
         const res = await fetch(base + '/apply', {
           method: 'POST',
@@ -1436,7 +2383,7 @@
           body: JSON.stringify({ name, params: allParams }),
         })
         const data = await res.json()
-        if (!res.ok || data.ok === false) throw new Error(data.error || '重建失败')
+        if (!res.ok || data.ok === false) throw new Error(data.error || t('rebuildFail'))
         if (data.params && data.params.values) allParams = data.params.values
         if (allParams.length && allParams.width && allParams.height) {
           baseline = { length: allParams.length, width: allParams.width, height: allParams.height }
@@ -1450,7 +2397,7 @@
         renderFaceInfo()
         syncChrome()
         await Promise.all([renderIssues(), renderTree(), renderMetadata(), renderAdvice()])
-        setStatus('参数已更新', 'ok')
+        setStatus(t('paramsUpdated'), 'ok')
       } catch (err) {
         setStatus(err.message || String(err), 'error')
       } finally {
@@ -1459,6 +2406,36 @@
     })
 
     partsSelect.addEventListener('change', () => { showPart(partsSelect.value, lastStamp) })
+
+    function applyLocale(next) {
+      locale = next === 'en' ? 'en' : 'zh'
+      refreshFeatureCopy()
+      applyStaticI18n()
+      if (document.body.classList.contains('bare') && inspectorEmpty && inspectorEdit && inspectorEdit.hidden) {
+        inspectorEmpty.textContent = t('pickFaceToEdit')
+      } else if (inspectorEmpty && inspectorEdit && inspectorEdit.hidden) {
+        inspectorEmpty.textContent = t('editEmpty')
+      }
+      renderParamList()
+      renderFaceInfo()
+      renderArtifacts()
+      renderFileTree()
+      syncDisplayToggles()
+      if (featureSel) selectParam(featureSel)
+      renderRunnerPanel()
+      syncWorkTabs()
+      void Promise.all([renderIssues(), renderTree(), renderMetadata(), renderAdvice()])
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event && event.data
+      if (!data || data.type !== 'easycad:locale') return
+      applyLocale(data.locale)
+    })
+    window.addEventListener('storage', (event) => {
+      if (event.key !== LOCALE_KEY) return
+      applyLocale(event.newValue)
+    })
 
     const [initial, tree] = await Promise.all([resolveInitialPart(), fetchTree()])
     fileTree = tree
